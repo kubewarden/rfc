@@ -5,6 +5,9 @@
 | Category     | QA                               |
 | RFC PR       | [fill this in after opening PR]  |
 
+# State: ACCEPTED
+[state]: #state
+
 # Summary
 [summary]: #summary
 

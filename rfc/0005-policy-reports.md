@@ -5,6 +5,9 @@
 | Category     | Policy Enforcement                                                    |
 | RFC PR       | [PR176](https://github.com/kubewarden/kubewarden-controller/pull/176) |
 
+# State: ACCEPTED
+[state]: #state
+
 # Summary
 [summary]: #summary
 

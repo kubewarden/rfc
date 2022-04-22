@@ -5,6 +5,24 @@
 | Category     | [Category]                       |
 | RFC PR       | [fill this in after opening PR]  |
 
+# State: ACCEPTED
+[state]: #state
+
+Select one from:
+- `DRAFT`: Normal discussion and changes happen in this state. Achieving
+  consensus on what to be done and how. Silence is not agreement but unanimity
+  is not needed either.
+- `CANDIDATE`: Meant to prove that an implementation is feasible. Changes to the
+  implementation can happen in this period, normally from feedback from the
+  implementation.
+- `ACCEPTED`: Consensus exists that implementation has been a success.
+- `REJECTED`: No consensus either for the draft text or the implementation.
+- `OBSOLETE`: No longer relevant (overridden by other RFCs, object of
+  enhancement no longer in use).
+
+Ideal progression:
+`DRAFT` (via a PR, until that PR is merged) -> `CANDIDATE` (iterate implementation) -> `ACCEPTED` (implementation is a sucess).
+
 # Summary
 [summary]: #summary
 
