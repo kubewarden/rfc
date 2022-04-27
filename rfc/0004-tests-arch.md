@@ -4,9 +4,7 @@
 | Start Date   | Dec 22th 2021                    |
 | Category     | QA                               |
 | RFC PR       | [fill this in after opening PR]  |
-
-# State: ACCEPTED
-[state]: #state
+| State        | **ACCEPTED**                     |
 
 # Summary
 [summary]: #summary
