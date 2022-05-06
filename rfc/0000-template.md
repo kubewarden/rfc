@@ -60,22 +60,17 @@ disruptive technical decisions (when applicable), as well as corner-cases and
 warnings.
 --->
 
-Take this template and propose an RFC by opening a PR against this repo.
+Adapt this template into a new RFC and open a PR against this repo.
 
-During the RFC life, update its state with one from:
-- `DRAFT`: Normal discussion and changes happen in this state. Achieving
-  consensus on what to be done and how. Silence is not agreement but unanimity
-  is not needed either.
-- `CANDIDATE`: Meant to prove that an implementation is feasible. Changes to the
-  implementation can happen in this period, normally from feedback from the
-  implementation.
-- `ACCEPTED`: Consensus exists that implementation has been a success.
-- `REJECTED`: No consensus either for the draft text or the implementation.
-- `OBSOLETE`: No longer relevant (overridden by other RFCs, object of
-  enhancement no longer in use).
+An RFC is created with `ACCEPTED` as state. After discussion and adapting, if it
+merges, it is merged as `ACCEPTED`. If it is finally rejected or consensus is
+not reached, it is changed to `REJECTED` and merged.
 
-Ideal progression:
-`DRAFT` (via a PR, until that PR is merged) -> `CANDIDATE` (iterate implementation) -> `ACCEPTED` (implementation is a sucess).
+States:
+- `ACCEPTED`: Consensus exists on what to be done and how. Silence is not
+  agreement but unanimity is not needed either.
+- `REJECTED`: No consensus either for the proposal or the implementation.
+
 
 # Drawbacks
 [drawbacks]: #drawbacks
