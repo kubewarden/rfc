@@ -177,7 +177,7 @@ above.
 
 The init container would then run a program that performs the following steps:
 
-1. Obtain ownership of a lock via backed by a Kubernetes Lease resource.
+1. Obtain ownership of a lock backed by a Kubernetes Lease resource.
 2. Wait until exclusive ownership is obtained.
 3. Inspect the configuration of Policy Server, download all the missing `.wasm`
   modules
