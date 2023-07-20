@@ -201,9 +201,7 @@ The usage of an init container has the following benefits:
   Pod
 * Avoid further complexity to be added to the Policy Server codebase
 
-The "download & optimize" code would be provided by a dedicated binary that is
-executed by an init container.
-
+The "download & optimize" code would be provided by a dedicated binary.
 To keep things simple, this binary can be stored inside of the already existing
 Policy Server container image. By doing that we do not complicate our build pipeline
 and we do not introduce a new container image that has to be mirrored when
