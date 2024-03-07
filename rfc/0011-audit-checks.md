@@ -164,9 +164,10 @@ within this event.
 
 ### Step 3: performing evaluations
 
-Initially, the evaluation is executed through an HTTP request directed at the
-Policy Server that enforces the policy. This step is crucial for determining
-the compliance of each resource with the established cluster policies.
+The evaluation process involves the scanner sequentially cycling through each
+audited resource, executing an HTTP request to the Policy Server that enforces
+the policy for each one. This step is crucial for determining the compliance of
+each resource with the established cluster policies.
 
 We will extend Policy Server to have a new endpoint for the audit checks. While
 the Kubernetes API server uses `/validate/POL_ID`, the audit scanner will file
@@ -206,9 +207,10 @@ Until we have real world data, it's not useful to eagerly optimize this aspect.
 
 ### Step 4: write `ClusterPolicyReport`
 
-The code will overwrite the old `ClusterPolicyReport` instance with a new generated
-from the data kept in memory. By doing that, we don't have to worry about
-synchronizing the old contents with the new ones.
+The code updates the existing `ClusterPolicyReport` instance by patching it with
+the newly generated information. This approach ensures that the report remains
+current without the need to synchronize previous contents with the latest
+updates.
 
 ### Creating a `PolicyReport` object
 
@@ -239,8 +241,8 @@ Kubernetes resource types involved.
 
 This step mirrors the process described in Step 2 for the ClusterPolicyReport.
 It involves fetching the instances of Kubernetes resources present within the
-namespace from the API server, likely in a paginated manner to manage large
-datasets efficiently.
+namespace from the API server, in a paginated manner to manage large datasets
+efficiently.
 
 #### Step 3: performing evaluations
 
@@ -250,11 +252,10 @@ the policies, through simulated events or direct policy checks.
 
 #### Step 4: write `PolicyReport`
 
-In the final step, the system generates a new PolicyReport instance,
-incorporating the latest evaluation data. This new report replaces the previous
-instance in memory, ensuring that the most current information is always
-reflected. This approach eliminates the need to merge or synchronize new data
-with old, streamlining the update process.
+The code updates the existing `PolicyReport` instance by patching it with
+the newly generated information. This approach ensures that the report remains
+current without the need to synchronize previous contents with the latest
+updates.
 
 ## Changes to Policy Server
 
