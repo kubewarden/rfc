@@ -39,7 +39,7 @@ The audit check will run at specified intervals and will produce audit reports u
 There is going to be one `PolicyReport` object per namespaced resource. As well as a `ClusterPolicyReport` 
 for each cluster wide resource 
 
-Details about the `PolicyReport` format can be found inside of this [RFC](https://github.com/kubewarden/rfc/blob/main/rfc/0012-policy-report.md).
+Details about the `PolicyReport` format can be found in this [RFC](https://github.com/kubewarden/rfc/blob/main/rfc/0012-policy-report.md).
 
 ## Intrinsic limitations
 
