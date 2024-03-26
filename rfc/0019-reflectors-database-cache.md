@@ -66,6 +66,10 @@ The database will contain a table for each resource kind that is being watched b
 The table name will be in the following format: 'group_version_kind'.
 For example, the table name for the `Pod` resource kind will be `v1_pods` and the table name for the `Deployment` resource kind will be `apps_v1_deployments`.
 
+As SQLite does not support concurrent writes, the database will be accessed by a single writer thread and multiple reader threads.
+This could change in the future once `BEGIN CONCURRENT` will be supported.
+For the time being, if we hit concurrency issues, we could consider using a single database per resource type.
+
 Table schema:
 
 | Column    | Data Type    | Constraints |
