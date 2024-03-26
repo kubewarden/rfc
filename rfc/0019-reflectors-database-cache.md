@@ -53,7 +53,7 @@ The current flow is as follows:
 1. The policy server receives a request to evaluate a policy.
 2. The policy server creates a new reflector for each resource kind that is being requested by the policy.
 3. The reflector fetches the objects from the Kubernetes API server and stores them in memory, this step is triggered by the event `watcher::Event::Restarted`.
-4. The policy server evaluates the policy using the objects stored in the reflectors cache.
+4. The policy server evaluates the policy using the objects stored in the reflectors cache. If the reflector is not ready yet, the policy request blocks until the cache is built.
 5. The reflector keeps the objects up-to-date by watching for changes in the Kubernetes API server.
 
 ## SQLite database store
