@@ -1,10 +1,10 @@
-|              |                                 |
-| :----------- | :------------------------------ |
-| Feature Name | Reflectors database cache       |
-| Start Date   | Mar 26 2024                     |
-| Category     | enhancement,feature             |
-| RFC PR       | [fill this in after opening PR] |
-| State        | **ACCEPTED**                    |
+|              |                                                   |
+| :----------- | :------------------------------------------------ |
+| Feature Name | Reflectors database cache                         |
+| Start Date   | Mar 26 2024                                       |
+| Category     | enhancement,feature                               |
+| RFC PR       | [PR33](https://github.com/kubewarden/rfc/pull/33) |
+| State        | **ACCEPTED**                                      |
 
 # Summary
 
