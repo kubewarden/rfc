@@ -1,6 +1,6 @@
 |              |                                 |
 | :----------- | :------------------------------ |
-| Feature Name | Group policies                  |
+| Feature Name | Policy group                    |
 | Start Date   | Jun 12 2024                     |
 | Category     | feature                         |
 | RFC PR       | [fill this in after opening PR] |
@@ -8,9 +8,9 @@
 
 # Summary
 
-A "group policy" is a policy that is composed of other policies.
+A "policy group" is a policy that is composed of other policies.
 The policies that are part of a group are evaluated using a boolean expression.
-The group policy will not support mutations.
+The policy group will not support mutations.
 
 # Motivation
 
@@ -34,12 +34,12 @@ and enables the creation of custom policies using a DSL-like configuration.
 
 This RFC proposes to add two new CRDs to the Kubewarden controller:
 
-- `GroupAdmissionPolicy`
-- `GroupClusterAdmissionPolicy`
+- `AdmissionPolicyGroup`
+- `ClusterAdmissionPolicyGroup`
 
 The CRDs will share most of the fields with the `AdmissionPolicy` and `ClusterAdmissionPolicy` CRDs, respectively.
-The main difference is that the `GroupAdmissionPolicy` and `GroupClusterAdmissionPolicy` CRDs will have a list of policies.
-Also, the `GroupAdmissionPolicy` and `GroupClusterAdmissionPolicy` CRDs will have a field to specify the boolean expression that will be used to evaluate the policies
+The main difference is that the `AdmissionPolicyGroup` and `ClusterAdmissionPolicyGroup` CRDs will define a list of policies.
+Also, the `AdmissionPolicyGroup` and `ClusterAdmissionPolicyGroup` CRDs will have a field to specify the boolean expression that will be used to evaluate the policies
 and a `message` field to specify the message that will be returned when the group policy is rejected.
 
 ## Example CRD
@@ -80,12 +80,12 @@ spec:
           reject:
             - latest
   expression: "sigstore_pgp() || (sigstore_gh_action() && reject_latest_tag())"
-  message: "The group policy is rejected."
+  message: "The policy group is rejected."
 ```
 
 ### Expression language
 
-We will use [CEL](https://github.com/google/cel-go) as the expression language for the group policies.
+We will use [CEL](https://github.com/google/cel-go) as the expression language for the policy groups.
 The main reason for this choice is that CEL is used by the [ValidatingAdmissionPolicy](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/) and [matchConditions](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#matching-requests-matchconditions) in Kubernetes.
 
 Each policy in the group will be represented as a function call in the expression with the same name as the policy defined in the group.
@@ -94,10 +94,10 @@ If the expression evaluates to `true`, the group policy will be considered as `a
 
 ### Message
 
-The message field will be used to specify the message that will be returned when the group policy is rejected.
+The message field will be used to specify the message that will be returned when the policy group is rejected.
 The specific policy results will be returned in the `warning` field of the response.
 
-This is an example of the response that will be returned when the group policy is rejected:
+This is an example of the response that will be returned when the policy group is rejected:
 
 ```json
 {
@@ -120,22 +120,22 @@ This is an example of the response that will be returned when the group policy i
 The new CRDs will be reconciled by the Kubewarden controller.
 The reconciliation flow is similar to the one used for the `AdmissionPolicy` and `ClusterAdmissionPolicy` resources:
 
-- when a new `GroupAdmissionPolicy` or `GroupClusterAdmissionPolicy` is created or updated the reconciler changes the configuration of the policy server to include the created/updated policy group
+- when a new `AdmissionPolicyGroup` or `ClusterAdmissionPolicyGroup` is created or updated the reconciler changes the configuration of the policy server to include the created/updated policy group
 - the reconciler rolls out the policy server deployment
 - the reconciler creates or updates the ValidatingWebhookConfiguration pointing to the policy server `validate` endpoint of the policy group
 
 ### Match Conditions
 
-An interesting use case is to use the group policies in combination with the [matchConditions](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#matching-requests-matchconditions) feature.
+An interesting use case is to use the policy groups in combination with the [matchConditions](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#matching-requests-matchconditions) feature.
 
-By combining the group policies with `matchConditions`, it could be possible to create complex policies that are evaluated only for specific requests.
+By combining the policy groups with `matchConditions`, it could be possible to create complex policies that are evaluated only for specific requests.
 For instance, it could be possible to build a policy that is evaluated only for requests that match a specific label selector.
 
 This RFC does not include any modifications to the policy CRDs to accommodate `matchConditions`, as it falls outside the scope of this proposal.
 
 ## Policy server
 
-The policy settings will be extended to include group policies alongside single policies.
+The `policies.yaml` settings file will be extended to include policy groups alongside ordinary policies.
 
 ```yaml
 psp-apparmor: # single policy
@@ -211,14 +211,13 @@ This avoids evaluating all the policies in the group when the result is already 
 
 ### Settings validation
 
-When the policy server starts, it will validate the settings of the group policies as well as the single policies.
-However, the group policies will have an additional validation step to ensure that the expression is valid and
-that evaluates to a boolean value.
+When the policy server starts, it will validate the settings of the policy groups as well as the ordinary policies.
+However, the policy groups will have an additional validation step to ensure that the expression is valid and evaluates to a boolean value.
 
 ### Handler
 
 The handler will respond to the `/validate/<group name>` endpoint.
-There is no need to create a new endpoint for the group policies, and as far as the API is concerned, the group policies will be treated as single policies.
+There is no need to create a new endpoint for the group policies, and as far as the API is concerned, the policy groups will be treated as ordinary policies.
 
 After the validation step, precompiled policies and group settings will be added to the `EvaluationEnvironment`.
 When a validation request is received, if the policy is a group policy, the `EvaluationEnvironment` performs the following steps:
@@ -249,10 +248,10 @@ Note that no optimizations were made to the Rhai engine in this POC implementati
 
 [drawbacks]: #drawbacks
 
-- The implementation of the group policies will add complexity to the Kubewarden controller and the policy server.
-- The expression language used to evaluate the group policies may not be familiar to all users.
-- In the worst case, the group policy evaluation time could be the sum of the evaluation time of all the policies in the group.
-  This is even worse if the group policy contains context-aware policies that introduce additional overhead.
+- The implementation of the policy groups will add complexity to the Kubewarden controller and the policy server.
+- The expression language used to evaluate the policy groups may not be familiar to all users.
+- In the worst case, the policy group evaluation time could be the sum of the evaluation time of all the policies in the group.
+  This is even worse if the policy group contains context-aware policies that introduce additional overhead.
 
 # Alternatives
 
