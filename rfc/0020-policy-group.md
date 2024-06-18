@@ -140,17 +140,17 @@ This RFC does not include any modifications to the policy CRDs to accommodate `m
 The `policies.yaml` settings file will be extended to include policy groups alongside ordinary policies.
 
 ```yaml
-psp-apparmor: # single policy
+psp-apparmor:
   url: registry://ghcr.io/kubewarden/policies/psp-apparmor:v0.1.7
 
-psp-capabilities: # single policy
+psp-capabilities:
   url: registry://ghcr.io/kubewarden/policies/psp-capabilities:v0.1.7
   allowedToMutate: true
   settings:
     allowed_capabilities: ["*"]
     required_drop_capabilities: ["KILL"]
 
-pod-image-singatures: # group policy
+pod-image-signatures: # policy group
   policies:
     - name: sigstore_pgp
       module: ghcr.io/kubewarden/policies/verify-image-signatures:v0.2.8
