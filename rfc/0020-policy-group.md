@@ -91,6 +91,8 @@ The main reason for this choice is that CEL is used by the [ValidatingAdmissionP
 Each policy in the group will be represented as a function call in the expression with the same name as the policy defined in the group.
 The expression field should be a valid CEL expression that evaluates to a boolean value and it will be validated by the Kubewarden controller's webhook.
 If the expression evaluates to `true`, the group policy will be considered as `accepted`, otherwise, it will be considered as `rejected`.
+Also, the webhook will reject expressions where the combined policies are targeting totally different resources.
+For example, `policy_that_eval_ingress() && policy_that_eval_pods()` is not allowed.
 
 ### Message
 
