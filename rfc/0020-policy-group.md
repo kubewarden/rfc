@@ -42,7 +42,7 @@ The main difference is that the `AdmissionPolicyGroup` and `ClusterAdmissionPoli
 Also, the `AdmissionPolicyGroup` and `ClusterAdmissionPolicyGroup` CRDs will have a field to specify the boolean expression that will be used to evaluate the policies
 and a `message` field to specify the message that will be returned when the group policy is rejected.
 
-## Example CRD
+### Example CRD
 
 ```yaml
 apiVersion: policies.kubewarden.io/v1
@@ -57,6 +57,7 @@ spec:
       operations:
         - CREATE
         - UPDATE
+
   policies:
     - name: sigstore_pgp
       module: ghcr.io/kubewarden/policies/verify-image-signatures:v0.2.8
@@ -235,7 +236,7 @@ This pattern is described in the Rhai book, under the [One Engine Instance Per C
 To improve performance, we could consider precompiling the AST of the expression when building the `EvaluationEnvironment`.
 Also, we could consider creating a [custom package](https://rhai.rs/book/rust/packages/create.html?highlight=custom%20package#create-a-custom-package) to instantiate the policy function calls only once.
 
-### Preliminary benchmark
+## Preliminary benchmark
 
 The following results are based on the [Kubewarden k6 load test](https://github.com/kubewarden/load-testing/tree/k6) using the [psp-apparmor policy](https://github.com/kubewarden/apparmor-psp-policy)
 
