@@ -273,6 +273,16 @@ This approach has the following drawbacks:
 
 [unresolved]: #unresolved-questions
 
-Unfortuantely, no production-ready CEL library is available for Rust.
-Some experimentes were made with [cel-rust](https://github.com/clarkmcc/cel-rust) and [rscel](https://github.com/1BADragon/rscel)
-but they do not pass the official compliance tests yet and are not actively developed.
+- Unfortuantely, no production-ready CEL library is available for Rust.
+  Some experimentes were made with [cel-rust](https://github.com/clarkmcc/cel-rust) and [rscel](https://github.com/1BADragon/rscel)
+  but they do not pass the official compliance tests yet and are not actively developed.
+
+- Furthermore, using two different expression languages in the Kubewarden controller and the policy server could lead to inconsistencies in the validation step.
+  For instance, it is possibilie that an expression that is valid in the Kubewarden controller is not valid in the policy server.
+  With the current proposal, this expression `"foo".startsWith("f") && policy_1() || policy_2()` would be valid in the Kubewarden controller but not in the policy server,
+  since Rhai can be customized to strip down types, standard library functions, and operators that are not needed, keeping only the policy functions and the logical operators.
+  However, [this issue](https://github.com/google/cel-go/issues/899) hints that CEL could be stripped down to a minimal set of functionalities as well.
+
+- Running a policy group locally for development or testing purposes should be possible with the `kwctl` tool.
+  However, implementing this feature means that the `kwctl` tool should be able to run a policy group directly from a CRD definition.
+  As this feature also applies to ordinary policies, it falls outside the scope of this RFC.
