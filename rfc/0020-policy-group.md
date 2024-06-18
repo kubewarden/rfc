@@ -72,7 +72,7 @@ spec:
         signatures:
           - image: "*"
             githubActions:
-            owner: "kubewarden"
+              owner: "kubewarden"
     - name: reject_latest_tag
       module: ghcr.io/kubewarden/policies/trusted-repos-policy:v0.1.12
       settings:
