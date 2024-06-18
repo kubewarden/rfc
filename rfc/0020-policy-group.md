@@ -57,7 +57,7 @@ spec:
       operations:
         - CREATE
         - UPDATE
-
+  backgroundAudit: true
   policies:
     - name: sigstore_pgp
       module: ghcr.io/kubewarden/policies/verify-image-signatures:v0.2.8
@@ -81,6 +81,49 @@ spec:
           reject:
             - latest
   expression: "sigstore_pgp() || (sigstore_gh_action() && reject_latest_tag())"
+  message: "The policy group is rejected."
+```
+
+### Audit
+
+Similar to the `AdmissionPolicy` and `ClusterAdmissionPolicy` CRDs, the `backgroundAudit` field will be used to specify if the policy group should be used or skipped when performing audit checks.
+
+### Context-aware rules
+
+The `AdmissionPolicyGroup` and `ClusterAdmissionPolicyGroup` CRDs support [context-aware](https://docs.kubewarden.io/reference/spec/context-aware-policies) capabilities.
+Each policy in a group will accept an optional [contextAwareResources](https://docs.kubewarden.io/reference/CRDs#contextawareresource) field to specify the resources that the policy is allowed to access at evaluation time.
+
+Example:
+
+```yaml
+apiVersion: policies.kubewarden.io/v1
+kind: ClusterAdmissionPolicyGroup # or AdmissionPolicyGroup
+metadata:
+  name: context-aware-group
+spec:
+  rules:
+    - apiGroups: [""]
+      apiVersions: ["v1"]
+      resources: ["pods"]
+      operations:
+        - CREATE
+        - UPDATE
+  policies:
+    - name: policy_1
+      module: ghcr.io/kubewarden/policies/policy_1:v0.1.0
+      contextAwareResources:
+        - apiVersion: "v1"
+          kind: "Pod"
+      settings:
+        foo: "bar"
+    - name: policy_2
+      module: ghcr.io/kubewarden/policies/policy_2:v0.1.0
+      contextAwareResources:
+        - apiVersion: "v1"
+          kind: "Namespace"
+      settings:
+        foo: "bar"
+  expression: "policy_1() && policy_2()"
   message: "The policy group is rejected."
 ```
 
