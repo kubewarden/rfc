@@ -262,3 +262,7 @@ Note that no optimizations were made to the Rhai engine in this POC implementati
 # Unresolved questions
 
 [unresolved]: #unresolved-questions
+
+Unfortuantely, no production-ready CEL library is available for Rust.
+Some experimentes were made with [cel-rust](https://github.com/clarkmcc/cel-rust) and [rscel](https://github.com/1BADragon/rscel)
+but they do not pass the official compliance tests yet and are not actively developed.
