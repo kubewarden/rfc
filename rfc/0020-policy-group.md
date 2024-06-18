@@ -25,6 +25,7 @@ and enables the creation of custom policies using a DSL-like configuration.
 [examples]: #examples
 
 - As a user, I want to create a policy that is composed of other policies and is evaluated using a boolean expression.
+- As a user, I want to develop and test a policy group with the help of kwctl.
 
 # Detailed design
 
@@ -283,6 +284,12 @@ Also, we could consider creating a [custom package](https://rhai.rs/book/rust/pa
 
 The policy server will support [raw policy](https://docs.kubewarden.io/tutorials/writing-policies/wasi/raw-policies) groups out of the box, since the group evaluation logic is implemented in the `EvaluationEnvironment`.
 It will be possible to define a policy group with raw policies only, and evaluate the expression by calling the `validate_raw/<group name>` endpoint.
+
+## Scaffolding
+
+The `kwctl` tool will be extended to support the scaffolding of policy groups.
+Running a policy or a policy group directly from a CRD definition through `kwctl` is a common use case,
+but the implementation of this feature falls outside the scope of this RFC.
 
 ## Preliminary benchmark
 
