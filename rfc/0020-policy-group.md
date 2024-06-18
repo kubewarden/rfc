@@ -259,6 +259,16 @@ Note that no optimizations were made to the Rhai engine in this POC implementati
 
 [alternatives]: #alternatives
 
+An alternative to the policy groups could be to create a tool that takes several policies and merges them into a new WASN module.
+The new WASM module would embed the original ones and would have a `main` function that takes care of evaluating the expression given by the user.
+
+This approach has the following drawbacks:
+
+- Complexity to implement this solution
+- The user would require an extra compilation step to create the new WASM module
+- The size of the new WASM module would be significantly larger if several policies are embedded
+- At runtime, the de-duplication optmization of the policies would be lost, increasing the memory footprint
+
 # Unresolved questions
 
 [unresolved]: #unresolved-questions
