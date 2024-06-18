@@ -279,6 +279,11 @@ This pattern is described in the Rhai book, under the [One Engine Instance Per C
 To improve performance, we could consider precompiling the AST of the expression when building the `EvaluationEnvironment`.
 Also, we could consider creating a [custom package](https://rhai.rs/book/rust/packages/create.html?highlight=custom%20package#create-a-custom-package) to instantiate the policy function calls only once.
 
+### Raw policy groups
+
+The policy server will support [raw policy](https://docs.kubewarden.io/tutorials/writing-policies/wasi/raw-policies) groups out of the box, since the group evaluation logic is implemented in the `EvaluationEnvironment`.
+It will be possible to define a policy group with raw policies only, and evaluate the expression by calling the `validate_raw/<group name>` endpoint.
+
 ## Preliminary benchmark
 
 The following results are based on the [Kubewarden k6 load test](https://github.com/kubewarden/load-testing/tree/k6) using the [psp-apparmor policy](https://github.com/kubewarden/apparmor-psp-policy)
