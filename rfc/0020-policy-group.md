@@ -1,10 +1,10 @@
-|              |                                 |
-| :----------- | :------------------------------ |
-| Feature Name | Policy group                    |
-| Start Date   | Jun 12 2024                     |
-| Category     | feature                         |
-| RFC PR       | [fill this in after opening PR] |
-| State        | **ACCEPTED**                    |
+|              |                                           |
+| :----------- | :---------------------------------------- |
+| Feature Name | Policy group                              |
+| Start Date   | Jun 12 2024                               |
+| Category     | feature                                   |
+| RFC PR       | https://github.com/kubewarden/rfc/pull/37 |
+| State        | **ACCEPTED**                              |
 
 # Summary
 
