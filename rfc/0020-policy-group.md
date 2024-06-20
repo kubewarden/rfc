@@ -136,7 +136,7 @@ The main reason for this choice is that CEL is used by the [ValidatingAdmissionP
 Each policy in the group will be represented as a function call in the expression with the same name as the policy defined in the group.
 The expression field should be a valid CEL expression that evaluates to a boolean value and it will be validated by the Kubewarden controller's webhook.
 If the expression evaluates to `true`, the group policy will be considered as `accepted`, otherwise, it will be considered as `rejected`.
-Also, the webhook will reject expressions where the combined policies are targeting totally different resources.
+Also, the webhook will reject expressions where the combined policies are targeting different resources.
 For example, `policy_that_eval_ingress() && policy_that_eval_pods()` is not allowed.
 
 ### Message
@@ -282,8 +282,8 @@ Also, we could consider creating a [custom package](https://rhai.rs/book/rust/pa
 
 ### Raw policy groups
 
-The policy server will support [raw policy](https://docs.kubewarden.io/tutorials/writing-policies/wasi/raw-policies) groups out of the box, since the group evaluation logic is implemented in the `EvaluationEnvironment`.
-It will be possible to define a policy group with raw policies only, and evaluate the expression by calling the `validate_raw/<group name>` endpoint.
+The policy server will support [raw policy](https://docs.kubewarden.io/tutorials/writing-policies/wasi/raw-policies) groups out of the box since the group evaluation logic is implemented in the `EvaluationEnvironment`.
+It will be possible to define a policy group with raw policies only and evaluate the expression by calling the `validate_raw/<group name>` endpoint.
 
 ## Scaffolding
 
@@ -320,21 +320,21 @@ The new WASM module would embed the original ones and would have a `main` functi
 
 This approach has the following drawbacks:
 
-- Complexity to implement this solution
+- The complexity of implementing this solution
 - The user would require an extra compilation step to create the new WASM module
-- The size of the new WASM module would be significantly larger if several policies are embedded
-- At runtime, the de-duplication optmization of the policies would be lost, increasing the memory footprint
+- The size of the new WASM module would be significantly larger if several policies were embedded
+- At runtime, the de-duplication optimization of the policies would be lost, increasing the memory footprint
 
 # Unresolved questions
 
 [unresolved]: #unresolved-questions
 
-- Unfortuantely, no production-ready CEL library is available for Rust.
-  Some experimentes were made with [cel-rust](https://github.com/clarkmcc/cel-rust) and [rscel](https://github.com/1BADragon/rscel)
+- Unfortunately, no production-ready CEL library is available for Rust.
+  Some experiments were made with [cel-rust](https://github.com/clarkmcc/cel-rust) and [rscel](https://github.com/1BADragon/rscel)
   but they do not pass the official compliance tests yet and are not actively developed.
 
 - Furthermore, using two different expression languages in the Kubewarden controller and the policy server could lead to inconsistencies in the validation step.
-  For instance, it is possibilie that an expression that is valid in the Kubewarden controller is not valid in the policy server.
+  For instance, it is possible that an expression that is valid in the Kubewarden controller is not valid in the policy server.
   With the current proposal, this expression `"foo".startsWith("f") && policy_1() || policy_2()` would be valid in the Kubewarden controller but not in the policy server,
   since Rhai can be customized to strip down types, standard library functions, and operators that are not needed, keeping only the policy functions and the logical operators.
   However, [this issue](https://github.com/google/cel-go/issues/899) hints that CEL could be stripped down to a minimal set of functionalities as well.
