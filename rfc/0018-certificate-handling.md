@@ -238,7 +238,7 @@ reconcile the certificates used by the whole Kubewarden stack.
 The new added reconciliation loop should check the expiration date of all the
 certificates used by the Kubewarden stack. Actually, this reconciliation loop
 is a runnable added to the controller manager. The runnable starts a ticker
-that verify validity of the certificates every 12 hours. 
+that verifies validity of the certificates every 12 hours. 
 
 If during the reconciliation loop the root CA is about to expire, that is, 
 the certificate will expire in less than 60 days, the
