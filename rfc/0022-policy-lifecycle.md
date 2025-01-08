@@ -44,6 +44,7 @@ The proposed changes aim to address these issues by introducing a new policy lif
 - As a user, I want to monitor the status of a policy on specific policy server replica so that I can identify and resolve issues with the policy.
 - As a user, I want that the policy server keeps running with a previous version of the policy in case of issues with the latest policy.
 - As a user, I want to rollback to a previous policy version in case of issues with the latest policy.
+- As a user, I want to debug issues with the namespaced policies I own without needing to involve the cluster administrator.
 
 # Detailed design
 
@@ -63,14 +64,49 @@ The Policy Server will be watching the Policy CRD directly and it will change th
 
 A leader election mechanism will be implemented to ensure that only one Policy Server instance is acting as a controller at a time.
 The leader will be responsible to pull the policies from the registry, validate the policy settings, precompile the policy and store it in a shared cache.
+We will rely on [Kubernetes Leases](https://kubernetes.io/docs/concepts/architecture/leases/) for this functionality, using the same mechanism employed by controllers scaffolded with Kubebuilder to elect a leader.
+Since the Policy Server is implemented in Rust, we will use the [kubert](https://docs.rs/kubert/0.22.0/kubert/lease/index.html) crate's lease module for this purpose.
+These features are not provided by the `kube-rs` crate, but kubert is built on top of `kube-rs`, is actively maintained, and is used in production by Linkerd.
+
 After the policy is precompiled, the leader will change the status of the policy to Valid and signal the other replicas that a new policy is available to be loaded.
 The replicas will be watching the Policy CRDs and load the new policy when the status is `Valid`.
 In case of an error, the policy status will be updated, but the Policy Server will continue serving the previous valid policy until the issue is resolved.
 
 ### Shared Policy Cache
 
-The Policy Server will have a shared cache where the precompiled policies will be stored.
-We can use a RWX Persistent Volume to store the cache and share it among all the Policy Server replicas.
+The Policy Server will use a shared cache to store precompiled policies.
+This cache can be shared across all Policy Server replicas by using a [RWX (ReadWriteMany) Persistent Volume](https://kubernetes.io/docs/concepts/storage/persistent-volumes/).
+RWX Persistent Volumes are supported by most cloud providers and Kubernetes distributions.
+
+To precompile a policy, we will use [`wasmtime::Engine::precompile_module`](https://docs.rs/wasmtime/latest/wasmtime/struct.Engine.html#method.precompile_module), which generates a binary blob. This blob will then be saved to disk.
+Non-leader instances can later load the precompiled module using [`wasmtime::Module::deserialize_file`](https://docs.rs/wasmtime/latest/wasmtime/struct.Module.html#method.deserialize_file).
+
+#### Limitations: Compatibility of Precompiled Modules
+
+Precompiled modules can only be reused by another `wasmtime::Engine` if the following conditions are met:
+
+1. **Same Wasmtime version**: Both the "optimizer" (the engine that precompiled the module) and the end consumer must use the same version of Wasmtime.
+2. **Same Wasmtime configuration**: Both must use the same `wasmtime::Config`. For example, enabling features like [async support](https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.async_support) or [epoch interruption](https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.epoch_interruption) on the consumer side, while the optimizer does not, will result in a loading error.
+
+This is documented [here](https://docs.rs/wasmtime/latest/wasmtime/struct.Module.html#method.deserialize):
+
+> Note that this function is designed to be safe receiving output from any compiled version of wasmtime itself.
+> This means that it is safe to feed output from older versions of Wasmtime into this function, in addition to newer versions of wasmtime (from the future!).
+> These inputs will deterministically and safely produce an Err. This function only successfully accepts inputs from the same version of wasmtime,
+> but the safety guarantee only applies to externally-defined blobs of bytes, not those defined by any version of wasmtime.
+> (this means that if you cache blobs across versions of wasmtime you can be safely guaranteed that future versions of wasmtime will reject old cache entries).
+
+Wasmtime ensures safety by producing an error when an incompatible version of a module is loaded. This allows us to handle such errors gracefully by downloading and re-optimizing the module as needed.
+Alternatively, we could save metadata alongside the binary blob containing the version and configuration details. Wasmtime includes mechanisms for version tracking to assist in ensuring compatibility.
+Please refer to the [Wasmtime documentation](https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.module_version) for more information about module versions strategies.
+
+#### Security Implications
+
+Loading precompiled binary blobs from a shared cache introduces potential security risks.
+An attacker could replace a valid binary blob with one that runs arbitrary malicious code.
+
+To mitigate this risk, we will use [sigstore](https://github.com/sigstore)'s signing capabilities to sign and verify all binary blobs.
+By leveraging Kubewarden's internal certificate authority (CA), we can generate a certificate and private key for the leader to sign blobs, ensuring that only trusted and verified blobs are used.
 
 ### Policy Versioning
 
