@@ -174,6 +174,36 @@ Given the concepts described above, the policy lifecycle will be as follows:
 
 NOTE: If there is a failure during an update, the Policy Server will keep running with the previous valid policy.
 
+## PolicyServer Lifecycle
+
+### Rolling Update
+
+When a new version of the Policy Server is deployed, the StatefulSet will perform a rolling update. The [`RollingUpdate`](https://kubernetes.io/docs/tutorials/stateful-application/basic-stateful-set/#rolling-update) strategy will ensure that only one replica updates at a time, starting from the highest ordinal number.
+
+As each updated replica starts, it will:
+
+1. List all `PolicyRevisions` where the `enabled` field is set to `true`.
+2. Load the corresponding module from the shared cache.
+3. Check if the module was precompiled with an older Policy Server version.
+   - If so, the module will be recompiled with the new version and saved to the shared cache before loading. See [Shared Policy Cache](#shared-policy-cache) for more details.
+
+This process happens even if the replica is not the leader, ensuring that the precompiled module is ready for other replicas as they start.
+
+### Scaling Up
+
+[Scaling up](https://kubernetes.io/docs/tutorials/stateful-application/basic-stateful-set/#scaling-up) a policy server means adding new replicas to the StatefulSet.
+When new replicas are created, they start with the currently enabled `PolicyRevisions` and load the required module from the shared cache.
+As each new policy server replica starts, the controller updates the status of the policy and policy revisions to show that a new replica has been added.
+The `Ready` status for a specific policy on the new replica will be set to `Unknown` until the policy loads successfully.
+If the policy fails to load, the policy server will shut down with an error.
+This prevents the new replica from being included in the service endpoints, ensuring no requests are sent to a replica that encountered an error.
+
+### Scaling Down
+
+[Scaling down](https://kubernetes.io/docs/tutorials/stateful-application/basic-stateful-set/#scaling-up) a policy server means reducing the number of replicas in the StatefulSet.
+When a replica is removed, the controller will update the status of the policies and policy revisions to reflect the removal.
+This may trigger a webhook reconciliation loop if the terminated replica was the only one reporting errors for a specific policy.
+
 # Drawbacks
 
 [drawbacks]: #drawbacks
