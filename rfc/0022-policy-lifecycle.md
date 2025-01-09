@@ -100,6 +100,10 @@ Wasmtime ensures safety by producing an error when an incompatible version of a 
 Alternatively, we could save metadata alongside the binary blob containing the version and configuration details. Wasmtime includes mechanisms for version tracking to assist in ensuring compatibility.
 Please refer to the [Wasmtime documentation](https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.module_version) for more information about module versions strategies.
 
+Therefore, we need to store precompiled modules in a path that includes the Policy Server version.
+This ensures compatibility when the Policy Server is updated, and the precompiled modules might no longer work with the new version.
+Example: `/cache/ghcr.io/kubewarden/policies/safe-labels/v1.0.0/v1.28.1/module.wasm`.
+
 #### Security Implications
 
 Loading precompiled binary blobs from a shared cache introduces potential security risks.
