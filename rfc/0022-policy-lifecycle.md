@@ -50,9 +50,16 @@ The proposed changes aim to address these issues by introducing a new policy lif
 
 [design]: #detailed-design
 
+> Note: In this RFC, the term `Policy` will be used to refer to any of the following resources: `AdmissionPolicy`, `ClusterAdmissionPolicy`, `AdmissionPolicyGroup`, or `ClusterAdmissionPolicyGroup`.
+
 ## Concepts
 
 To implemenet the new policy lifecycle, we will introduce the following concepts:
+
+### Hot reload
+
+The Policy Server will be able to load a new policy without requiring a restart.
+This is will be achieved by refactoring the `EvaluationEnvironment` adding methods to set, update and remove policies.
 
 ### The Policy Server acts as a controller
 
@@ -60,17 +67,136 @@ At the time of writing the Policy Server is configured with a ConfigMap that con
 When a new policy is created, the ConfigMap is updated, and the Policy Server is restarted to load the new policy.
 
 We want to change this behavior to allow the Policy Server to act as a controller that can load new policies without requiring a restart.
-The Policy Server will be watching the Policy CRD directly and it will change the internal state of the evaluation environment when a new policy is created or updated.
 
-A leader election mechanism will be implemented to ensure that only one Policy Server instance is acting as a controller at a time.
-The leader will be responsible to pull the policies from the registry, validate the policy settings, precompile the policy and store it in a shared cache.
+#### PolicyRevision CRD
+
+We will introduce a new CRD called `PolicyRevision` to store the state of a policy in relation to the Policy Server replicas.
+`PolicyRevisions` are namespaced resources, and they will be created in the same namespace as the controller.
+
+The PolicyRevision will include fields to store the policy content and an `enabled` field to specify whether the policy should be served by the Policy Server.
+The `PolicyRevision` will include a `policyGeneration` field to store the generation of the associated `Policy`.
+This field will be set to the value of `metadata.generation` from the `Policy` CRD at the time the `PolicyRevision` is created.
+This approach allows the Policy Server to manage serve versions of a policy at the same time, facilitating the gradual rollout of updates.
+
+This is similar to the `Deployment` and `ReplicaSet` relationship in Kubernetes, where the `Deployment` defines the desired state at a higher level of abstraction,
+and the `ReplicaSet` is responsible for managing the current state to align with this desired state.
+Additionally, `ReplicaSets` also store the backup of older `Deployment` revisions, enabling rollback to a previous state if needed.
+The `PolicyRevision` will also store the older policy to a maximum of `n` revisions, where `n` is a configurable value.
+This will allow users to rollback to a previous policy version if needed.
+
+In summary:
+
+- A `Policy` specifies the desired state of a policy.
+- One or more `PolicyRevisions` with `enabled` set to `true` represent the active policies currently served by the Policy Server.
+- A `PolicyRevision` with `enabled` set to `true` and `policyGeneration` matching the current generation of the `Policy` represents the desired state of the policy within the Policy Server's evaluation environment.
+- `PolicyRevisions` with `enabled` set to `false` represent previous states of the policies, retained for potential rollback scenarios.
+
+When a new Policy is created, the controller will create a new `PolicyRevision` resource with the policy content and set the `enabled` field to `true`.
+Additionally, the controller will add a `kubewarden.io/policy-server` label to the `PolicyRevision` to filter the policies for a specific Policy Server.
+
+For example, given the following `ClusterAdmissionPolicy`:
+
+```yaml
+apiVersion: policies.kubewarden.io/v1
+kind: ClusterAdmissionPolicy
+metadata:
+  generation: 1
+  name: privileged-pods
+spec:
+  policyServer: reserved-instance-for-tenant-a
+  module: registry://ghcr.io/kubewarden/policies/pod-privileged:v0.2.2
+  rules:
+    - apiGroups: [""]
+      apiVersions: ["v1"]
+      resources: ["pods"]
+      operations:
+        - CREATE
+        - UPDATE
+  mutating: false
+status:
+  conditions:
+    - type: Pending
+      status: True
+      reason: PolicyPending
+      message: "The policy was created and is pending to be loaded"
+```
+
+The controller will create the `PolicyRevision` resource as follows:
+
+```yaml
+apiVersion: policies.kubewarden.io/v1
+kind: PolicyRevision
+metadata:
+  name: clusterwide-privileged-pods-6469c6d5f6 # we will use the Policy unique name and a random suffix
+  namespace: kubewarden # the namespace of the controller
+  labels:
+    kubewarden.io/policy-server: reserved-instance-for-tenant-a # this is needed to filter the PolicyRevisions for a specific PolicyServer
+spec:
+  objectReference:
+    apiVersion: policies.kubewarden.io/v1
+    kind: ClusterAdmissionPolicy
+    name: privileged-pods
+  policyGeneration: 1
+  enabled: true
+  data: # data will contain the policy content
+    spec:
+      policyServer: reserved-instance-for-tenant-a
+      module: registry://ghcr.io/kubewarden/policies/pod-privileged:v0.2.2
+      rules:
+        - apiGroups: [""]
+          apiVersions: ["v1"]
+          resources: ["pods"]
+          operations:
+            - CREATE
+            - UPDATE
+      mutating: false
+status:
+  conditions:
+    - type: Pending
+      status: True
+      reason: PolicyPending
+      message: "The policy was created and is waiting to be loaded"
+```
+
+The `PolicyRevision` is comparable to the [`ControllerRevision`](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/controller-revision-v1/) resource in Kubernetes.
+The data field is of type `RawExtension`, which allows it to store any type of policy.
+
+The Policy Server replicas will be watching the new `PolicyRevision` CRD directly and it will change the internal state of the evaluation environment when a new policy is created or updated.
+
+#### PolicyServer leader reconciler
+
+A leader election mechanism will be implemented to ensure that only one Policy Server instance is running the leader reconciler at a time.
+The leader will be responsible to pull the policies from the registry, validate the policy settings, precompile the policy and store it in a shared cache. See [Shared Policy Cache](#shared-policy-cache) for more details.
 We will rely on [Kubernetes Leases](https://kubernetes.io/docs/concepts/architecture/leases/) for this functionality, using the same mechanism employed by controllers scaffolded with Kubebuilder to elect a leader.
 Since the Policy Server is implemented in Rust, we will use the [kubert](https://docs.rs/kubert/0.22.0/kubert/lease/index.html) crate's lease module for this purpose.
 These features are not provided by the `kube-rs` crate, but kubert is built on top of `kube-rs`, is actively maintained, and is used in production by Linkerd.
 
-After the policy is precompiled, the leader will change the status of the policy to Valid and signal the other replicas that a new policy is available to be loaded.
-The replicas will be watching the Policy CRDs and load the new policy when the status is `Valid`.
+After the policy is precompiled, the leader will change the status condition of type `Initialized` of the `PolicyRevision` to `True`.
+This will trigger the replica reconciler to load the policy in the evaluation environment in all the replicas.
+
+#### Policy Server replica reconciler
+
+All the replicas, including the leader, will be running a reconciliation loop to configure the policies in the evaluation environment.
+The replicas will be watching the `PolicyRevision` CRDs and load the policy in the evaluation environment when the status condition of type `Initialized` is set to `True` and the `enabled` field is set to `true`.
 In case of an error, the policy status will be updated, but the Policy Server will continue serving the previous valid policy until the issue is resolved.
+This is possible because multiple `PolicyRevisions` can be enabled at the same time.
+The Policy Server will expose the current policies via the `/validate` endpoint using the `generation` number as a query parameter.
+This allows the webhook to be configured to a specific policy generation.
+For instance: `/validate/privileged-pods?generation=2` will validate the request against the `privileged-pods` policy with generation 2.
+
+#### Policy and PolicyRevision conditions
+
+The `PolicyRevision` CRD will have a status field to store the status of the policy.
+The status will be propagated to the `Policy` CRD by the controller, so that the user can monitor the status of the policy without having to access the `PolicyRevision` CRD.
+Being the `PolicyRevision` CRD a namespaced resource, the user might not have the necessary permissions to access it.
+
+#### PolicyServer bootstrap
+
+When the Policy Server starts, it will load the policy from the `PolicyRevision` resources where the `enabled` field is set to `true` if the status condition of type `Initialized` is set to `True`.
+If the `PolicyRevision` is `enabled` but the status condition is not `Initialized`, the Policy Server leader will be in charge of the initlialization process.
+If the `PolicyRevision` is not `enabled`, the Policy Server will not load the policy, as the policy is not meant to be served.
+If a Policy Server replica fails to load the policy from a `PolicyRevision` CRD, it will exit with an error.
+Since Kubernetes removes the pod from the service endpoints during a restart or a termination, the Policy Server service will remain consistent, ensuring that no server operates without a valid policy.
 
 ### Shared Policy Cache
 
@@ -103,6 +229,7 @@ Please refer to the [Wasmtime documentation](https://docs.rs/wasmtime/latest/was
 Therefore, we need to store precompiled modules in a path that includes the Policy Server version.
 This ensures compatibility when the Policy Server is updated, and the precompiled modules might no longer work with the new version.
 Example: `/cache/ghcr.io/kubewarden/policies/safe-labels/v1.0.0/v1.28.1/module.wasm`.
+TODO: explain this example
 
 #### Security Implications
 
@@ -112,22 +239,6 @@ An attacker could replace a valid binary blob with one that runs arbitrary malic
 To mitigate this risk, we will use [sigstore](https://github.com/sigstore)'s signing capabilities to sign and verify all binary blobs.
 By leveraging Kubewarden's internal certificate authority (CA), we can generate a certificate and private key for the leader to sign blobs, ensuring that only trusted and verified blobs are used.
 
-### Policy Versioning
-
-We can use the `generation` field of the Policy CRD to version policies. When a new policy is created or updated, Kubernetes automatically increments the `generation` field.
-
-The current policy will be stored in another CRD, similar to the `Policy` CRD, but with a different name, such as `PolicyReplica`.
-Only one `PolicyReplica` will be kept at any time. When a Policy Server replica restarts or a new replica is created, it will load the policy from the `PolicyReplica` CRD.
-
-The `PolicyReplica` is always assumed to be valid, as it has already been validated by the leader.
-If a Policy Server replica fails to load the policy from the `PolicyReplica` CRD, it will exit with an error.
-Since Kubernetes removes the pod from the service endpoints during a restart or a termination, the Policy Server service will remain consistent, ensuring that no server operates without a valid policy.
-
-Additionally, the policy validation endpoint will include the `generation` number in its URL.
-When all Policy Server replicas are ready with the new `PolicyReplica`, the validation endpoint will switch to the new `generation` number.
-Once this transition is complete, the `PolicyReplica` (current state) and the `Policy` (desired state) will be identical, ensuring consistency across all Policy Server replicas.
-This approach guarantees that the Policy Server will always have a valid policy to load and avoids any service interruptions during updates.
-
 ### The Policy Server is a StatefulSet
 
 The Policy Server will be deployed as a StatefulSet to ensure that each replica has a unique identity.
@@ -135,50 +246,100 @@ This will allow us to identify the status of a policy on a specific Policy Serve
 
 ### Policy Status
 
-The Policy CRD status will be updated to support the following Status Conditions:
-
-From the leader perspective:
-
-- `Pending`: The leader has received the event and is starting the policy loading process.
-- `Valid`: The policy was successfully loaded and is ready to be used.
-- `Invalid`: The policy failed to load due to an error with the policy settings.
-- `PullError`: The leader failed to pull the policy from the registry.
-- `Pending`: The policy is being loaded.
-- `Ready` (replica number): The policy was successfully loaded and is ready to be used.
-- `Active` (generation number): The webhook is configured to the desidered policy generation.
-
-We can use the [status condition](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties) convention to report the status of the policy.
-We will extend the status condition struct to include the replica number.
+We will use the [status condition](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties) convention to report the status of the policy.
+The status condition struct will be extended to include the replica number.
 The approach of extending the status condition struct is already used in the Kubernetes codebase,
 for example in the [Pod conditions](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-conditions).
+
+The `PolicyStatusCondition` struct will have the following fields:
+
+| **Field name**         | **Description**                                                                                     |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| **type**               | Name of the policy condition.                                                                       |
+| **status**             | Indicates whether the condition is applicable, with possible values: "True", "False", or "Unknown". |
+| **reason**             | Machine-readable reason for the condition's last transition, in UpperCamelCase format.              |
+| **message**            | Human-readable message providing details about the last transition.                                 |
+| **replica** (optional) | The replica number reporting the status.                                                            |
+
+The `Policy` CRD and the `PolicyRevision` CRD will be updated to include the status conditions.
+See the [Policy and PolicyRevision conditions](#policy-and-policyrevision-conditions) section for more details on how the status conditions will be propagated.
+
+The following `PolicyConditions` will be observed:
+
+- `Scheduled`: The policy was created and is pending to be loaded.
+- `Initialized`: The policy was successfully pulled, precompiled and validated by the leader.
+- `Ready`: The policy was successfully loaded and is ready to be used. This status will include the replica number.
+
+By using the `reason` field in the status condition, we can provide detailed information in case of an error.
+For instance if the leader fails to initialize a policy because of registry error, the following status condition will be set:
+
+```yaml
+conditions:
+  - type: Initialized
+    status: False
+    reason: PullError
+    message: "Cannot pull the policy from the registry."
+```
 
 ### Rollback
 
 If a policy fails to load, the Policy Server will keep running with the previous valid policy.
 The user will be able to rollback to a previous policy version by updating the `Policy` CRD (via a spec field or an annotation, TBD).
-The controller will detect the change and use the `PolicyReplica` CRD to update the Policy CRD with the previous configuration.
+The controller will detect the change and use the `PolicyRevision` CRD to update the Policy CRD with the previous configuration.
+
+### Garbage Collection
+
+When a `Policy` is deleted, the controller will also delete all associated `PolicyRevisions`.
+Using the `OwnerReference` field is not feasible in this case, as the `PolicyRevision` may reside in a different namespace than the `AdmissionPolicy` or `AdmissionPolicyGroup`,
+or it could be versioning a `ClusterAdmissionPolicy` or `ClusterAdmissionPolicyGroup`, which are cluster-scoped resources.
+
+We will also need to implement a garbage collection mechanism to remove old precompiled modules from the shared cache.
+This will prevent the cache from growing indefinitely and consuming unnecessary resources.
 
 ## Policy Lifecycle
 
-Given the concepts described above, the policy lifecycle will be as follows:
+Given the concepts described above, the policy creation lifecycle will be as follows:
 
-| Description                                                                                                                                                                 | Condition                    |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| The user creates or updates a policy by creating or modifying the `Policy` CRD.                                                                                             | `Created/Updated`            |
-| The Policy Server leader receives the event and starts the policy loading process. The policy status is set to `Pending`.                                                   | `Pending`                    |
-| The leader successfully pulls the policy from the registry, validates the settings, precompiles the policy, and stores it in the shared cache.                              | `Valid`                      |
-| The leader encounters an error while loading the policy. The status is set to `Invalid`, and the webhook will not be configured.                                            | `Invalid`                    |
-| The leader fails to retrieve the policy from the registry. The status is set to `PullError`, and the webhook will not be configured.                                        | `PullError`                  |
-| The Policy Server replica successfully loads the policy and updates the status to `Ready` with the replica number. The webhook can then be configured.                      | `Ready (replica number)`     |
-| The controller configures the webhook to validate the policy. The status is updated to indicate the policy generation being served, which includes the `generation` number. | `Active (generation number)` |
+1. The user creates a new `Policy`.
+2. The controller creates a new `PolicyRevision` resource with the policy content and sets the `enabled` field to `true`.
+   It also sets the `policyGeneration` field to the value of `metadata.generation` from the `Policy` CRD and adds the `Scheduled` status condition to both the `Policy` and `PolicyRevision` CRDs.
+3. The new `PolicyRevision` triggers the leader reconciler. The leader pulls the policy from the registry, precompiles the policy, and stores it in the shared cache.
+4. The leader validates the policy settings.
+5. The leader changes the status condition of type `Initialized` of the `PolicyRevision` to `True`.
+   - If an error occurred in the previous steps, the status condition of type `Initialized` will be set to `False` with the appropriate reason and message.
+6. The controller propagates the status condition to the `Policy` CRD.
+7. The replica reconciler of all the replicas including the leader loads the policy in the evaluation environment.
+8. Every replica will report the status of the policy to the `PolicyRevision` CRD, setting the status condition of type `Ready` to `True`.
+   - If an error occurs, the status condition of type `Ready` will be set to `False` with the appropriate reason and message.
+9. The `Ready` status is propagated to the `Policy` CRD.
+10. When all the replicas have set the `Ready` status to true, the controller creates a Webhook configuration with the `generation` query parameter set to the `PolicyRevision` generation.
+11. The policy is now read to be used.
 
-NOTE: If there is a failure during an update, the Policy Server will keep running with the previous valid policy.
+The policy update lifecycle will be as follows:
+
+1. The user updates an existing `Policy`.
+2. The controller creates a new `PolicyRevision` resource with the policy content and sets the `enabled` field to `true`.
+   It also sets the `policyGeneration` field to the value of `metadata.generation` from the `Policy` object and adds the `Scheduled` status condition to both the `Policy` and `PolicyRevision` CRDs.
+3. The new `PolicyRevision` triggers the leader reconciler. The leader pulls the policy from the registry, precompiles the policy, and stores it in the shared cache.
+4. The leader validates the policy settings.
+5. The leader changes the status condition of type `Initialized` of the `PolicyRevision` to `True`.
+   - If an error occurred in the previous steps, the status condition of type `Initialized` will be set to `False` with the appropriate reason and message.
+6. The controller propagates the status condition to the `Policy` CRD.
+7. The replica reconciler of all the replicas including the leader loads the policy in the evaluation environment.
+8. Every replica will report the status of the policy to the `PolicyRevision` CRD, setting the status condition of type `Ready` to `True`.
+   - If an error occurs, the status condition of type `Ready` will be set to `False` with the appropriate reason and message.
+9. The `Ready` status is propagated to the `Policy` CRD.
+10. When all the replicas have set the `Ready` status to true, the controller creates updateds the Webhook configuration with the `generation` query parameter set to the `PolicyRevision` generation.
+    - If an error occurred in the previous steps, the controller will not update the Webhook configuration.
+11. The controller garbage collects the old `PolicyRevisions` and precompiled modules, keeping only the last `n` revisions.
+12. The policy is now read to be used.
 
 ## PolicyServer Lifecycle
 
 ### Rolling Update
 
-When a new version of the Policy Server is deployed, the StatefulSet will perform a rolling update. The [`RollingUpdate`](https://kubernetes.io/docs/tutorials/stateful-application/basic-stateful-set/#rolling-update) strategy will ensure that only one replica updates at a time, starting from the highest ordinal number.
+When a new version of the Policy Server is deployed, the StatefulSet will perform a rolling update.
+The [`RollingUpdate`](https://kubernetes.io/docs/tutorials/stateful-application/basic-stateful-set/#rolling-update) strategy will ensure that only one replica updates at a time, starting from the highest ordinal number.
 
 As each updated replica starts, it will:
 
@@ -196,7 +357,7 @@ When new replicas are created, they start with the currently enabled `PolicyRevi
 As each new policy server replica starts, the controller updates the status of the policy and policy revisions to show that a new replica has been added.
 The `Ready` status for a specific policy on the new replica will be set to `Unknown` until the policy loads successfully.
 If the policy fails to load, the policy server will shut down with an error.
-This prevents the new replica from being included in the service endpoints, ensuring no requests are sent to a replica that encountered an error.
+This prevents the new replicas from being included in the service endpoints, ensuring no requests are sent to a replica that encountered an error.
 
 ### Scaling Down
 
