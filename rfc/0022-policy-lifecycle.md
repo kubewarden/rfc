@@ -76,7 +76,7 @@ We will introduce a new CRD called `PolicyRevision` to store the state of a poli
 The PolicyRevision will include fields to store the policy content and an `enabled` field to specify whether the policy should be served by the Policy Server.
 The `PolicyRevision` will include a `policyGeneration` field to store the generation of the associated `Policy`.
 This field will be set to the value of `metadata.generation` from the `Policy` CRD at the time the `PolicyRevision` is created.
-This approach allows the Policy Server to manage serve versions of a policy at the same time, facilitating the gradual rollout of updates.
+This approach allows the Policy Server to manage multiple generations of a policy at the same time, facilitating the gradual rollout of updates.
 
 This is similar to the `Deployment` and `ReplicaSet` relationship in Kubernetes, where the `Deployment` defines the desired state at a higher level of abstraction,
 and the `ReplicaSet` is responsible for managing the current state to align with this desired state.
@@ -138,7 +138,7 @@ spec:
     name: privileged-pods
   policyGeneration: 1
   enabled: true
-  data: # data will contain the policy content
+  data: # data will contain the policy.spec contents
     spec:
       policyServer: reserved-instance-for-tenant-a
       module: registry://ghcr.io/kubewarden/policies/pod-privileged:v0.2.2
@@ -172,7 +172,7 @@ Since the Policy Server is implemented in Rust, we will use the [kubert](https:/
 These features are not provided by the `kube-rs` crate, but kubert is built on top of `kube-rs`, is actively maintained, and is used in production by Linkerd.
 
 After the policy is precompiled, the leader will change the status condition of type `Initialized` of the `PolicyRevision` to `True`.
-This will trigger the replica reconciler to load the policy in the evaluation environment in all the replicas.
+This will trigger the replica reconciler to load the policy in the evaluation environment of all the policy server pods that are part of the StatefulSet.
 
 #### Policy Server replica reconciler
 
@@ -188,12 +188,12 @@ For instance: `/validate/privileged-pods?generation=2` will validate the request
 
 The `PolicyRevision` CRD will have a status field to store the status of the policy.
 The status will be propagated to the `Policy` CRD by the controller, so that the user can monitor the status of the policy without having to access the `PolicyRevision` CRD.
-Being the `PolicyRevision` CRD a namespaced resource, the user might not have the necessary permissions to access it.
+Being the `PolicyRevision` CRD a namespaced resource, only admin users will have the right permissions to access it.
 
 #### PolicyServer bootstrap
 
 When the Policy Server starts, it will load the policy from the `PolicyRevision` resources where the `enabled` field is set to `true` if the status condition of type `Initialized` is set to `True`.
-If the `PolicyRevision` is `enabled` but the status condition is not `Initialized`, the Policy Server leader will be in charge of the initlialization process.
+If the `PolicyRevision` is `enabled` but the status condition is not `Initialized`, the Policy Server leader will be in charge of the initialization process.
 If the `PolicyRevision` is not `enabled`, the Policy Server will not load the policy, as the policy is not meant to be served.
 If a Policy Server replica fails to load the policy from a `PolicyRevision` CRD, it will exit with an error.
 Since Kubernetes removes the pod from the service endpoints during a restart or a termination, the Policy Server service will remain consistent, ensuring that no server operates without a valid policy.
@@ -228,7 +228,7 @@ Please refer to the [Wasmtime documentation](https://docs.rs/wasmtime/latest/was
 
 Therefore, we need to store precompiled modules in a path that includes the Policy Server version.
 This ensures compatibility when the Policy Server is updated, and the precompiled modules might no longer work with the new version.
-Example: `/cache/ghcr.io/kubewarden/policies/safe-labels/v1.0.0/v1.28.1/module.wasm`.
+Example: `/cache/ghcr.io/kubewarden/policies/safe-labels/v1.0.0/optimized-kw-v1.28.1.wasm`.
 TODO: explain this example
 
 #### Security Implications
