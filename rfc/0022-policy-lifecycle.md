@@ -180,9 +180,9 @@ All the replicas, including the leader, will be running a reconciliation loop to
 The replicas will be watching the `PolicyRevision` CRDs and load the policy in the evaluation environment when the status condition of type `Initialized` is set to `True` and the `enabled` field is set to `true`.
 In case of an error, the policy status will be updated, but the Policy Server will continue serving the previous valid policy until the issue is resolved.
 This is possible because multiple `PolicyRevisions` can be enabled at the same time.
-The Policy Server will expose the current policies via the `/validate` endpoint using the `generation` number as a query parameter.
-This allows the webhook to be configured to a specific policy generation.
-For instance: `/validate/privileged-pods?generation=2` will validate the request against the `privileged-pods` policy with generation 2.
+The Policy Server provides access to current policies through the `/validate` endpoint, incorporating the `generation` number as a URL parameter.
+This setup enables the webhook to target a specific policy generation.
+For example, the endpoint `/validate/privileged-pods/2` validates requests using the `privileged-pods` policy at generation 2.
 
 #### Policy and PolicyRevision conditions
 
