@@ -70,7 +70,7 @@ We want to change this behavior to allow the Policy Server to act as a controlle
 #### PolicyRevision CRD
 
 We will introduce a new CRD called `PolicyRevision` to store the state of a policy in relation to the Policy Server replicas.
-`PolicyRevisions` are namespaced resources, and they will be created in the same namespace as the controller.
+`PolicyRevisions` are namespaced resources, and they will be created in the same namespace as the Kubewarden controller.
 
 The `PolicyRevision` will include fields to store the policy content and an `enabled` field to specify whether the policy should be served by the Policy Server.
 The `PolicyRevision` will include a `policyGeneration` field to store the generation of the associated `Policy`.
@@ -90,8 +90,8 @@ In summary:
 - A `PolicyRevision` with `enabled` set to `true` and `policyGeneration` matching the current generation of the `Policy` represents the desired state of the policy within the Policy Server's evaluation environment.
 - `PolicyRevisions` with `enabled` set to `false` represents previous states of the policies, retained for potential rollback scenarios.
 
-When a new Policy is created, the controller will create a new `PolicyRevision` resource with the policy content and set the `enabled` field to `true`.
-Additionally, the controller will add a `kubewarden.io/policy-server` label to the `PolicyRevision` to filter the policies for a specific Policy Server.
+When a new Policy is created, the Kubewarden controller will create a new `PolicyRevision` resource with the policy content and set the `enabled` field to `true`.
+Additionally, the Kubewarden controller will add a `kubewarden.io/policy-server` label to the `PolicyRevision` to filter the policies for a specific Policy Server.
 
 For example, given the following `ClusterAdmissionPolicy`:
 
