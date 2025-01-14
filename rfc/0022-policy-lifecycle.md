@@ -19,7 +19,7 @@ Additionally, the user will be able to rollback to a previous policy version in 
 [motivation]: #motivation
 
 This change addresses a critical issue with the Policy Server.
-Currently, a policy can fail to load for a variety of reasons. For example, an inability to download from the registry or incorrect settings. This causes the Policy Server to exit with an error, causing the pod to enter a CrashLoopBackOff state.
+Currently, a policy can fail to load for a variety of reasons. For example, an inability to pull from the registry or incorrect settings. This causes the Policy Server to exit with an error, causing the pod to enter a CrashLoopBackOff state.
 Resolving this requires inspecting the error messages from the Policy Server pod and fixing the underlying issue.
 However, a user might have the permissions to create a policy but lack the necessary permissions to check the logs of the Policy Server. This presents challenges to diagnosis and resolution of problems.
 Additionally, when updating a policy, there is no status reported to indicate the failure. The policy remains in the Active state even while the Policy Server is stuck in a crash loop.
@@ -221,11 +221,11 @@ This is documented [here](https://docs.rs/wasmtime/latest/wasmtime/struct.Module
 > but the safety guarantee only applies to externally-defined blobs of bytes, not those defined by any version of Wasmtime.
 > (this means that if you cache blobs across versions of Wasmtime you can be safely guaranteed that future versions of Wasmtime will reject old cache entries).
 
-Wasmtime ensures safety by producing an error when an incompatible version of a module is loaded. This allows us to handle such errors gracefully by downloading and re-optimizing the module as needed.
-Alternatively, we could save metadata alongside the binary blob containing the version and configuration details. Wasmtime includes mechanisms for version tracking to assist in ensuring compatibility.
+Wasmtime ensures safety by producing an error when an incompatible version of a module is loaded. This allows us to handle such errors gracefully by re-optimizing the module as needed.
 Please refer to the [Wasmtime documentation](https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.module_version) for more information about module version strategies.
 
-Therefore, we need to store precompiled modules in a path that includes the Policy Server version.
+Therefore, we need to store precompiled modules by appending the Policy Server version to the module name.
+The original module will remain in the shared cache, enabling the Policy Server to recompile it when necessary, such as when the Policy Server version changes.
 This ensures compatibility when the Policy Server is updated, and the precompiled modules might no longer work with the new version.
 Example: `/cache/ghcr.io/kubewarden/policies/safe-labels/v1.0.0/optimized-kw-v1.28.1.wasm`.
 Where `v1.0.0` is the policy version and `v1.28.1` the policy-server version.
