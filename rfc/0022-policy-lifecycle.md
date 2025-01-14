@@ -215,11 +215,11 @@ Precompiled modules can only be reused by another `wasmtime::Engine` if the foll
 
 This is documented [here](https://docs.rs/wasmtime/latest/wasmtime/struct.Module.html#method.deserialize):
 
-> Note that this function is designed to be safe receiving output from any compiled version of wasmtime itself.
-> This means that it is safe to feed output from older versions of Wasmtime into this function, in addition to newer versions of wasmtime (from the future!).
-> These inputs will deterministically and safely produce an Err. This function only successfully accepts inputs from the same version of wasmtime,
-> but the safety guarantee only applies to externally-defined blobs of bytes, not those defined by any version of wasmtime.
-> (this means that if you cache blobs across versions of wasmtime you can be safely guaranteed that future versions of wasmtime will reject old cache entries).
+> Note that this function is designed to be safe receiving output from any compiled version of Wasmtime itself.
+> This means that it is safe to feed output from older versions of Wasmtime into this function, in addition to newer versions of Wasmtime (from the future!).
+> These inputs will deterministically and safely produce an Err. This function only successfully accepts inputs from the same version of Wasmtime,
+> but the safety guarantee only applies to externally-defined blobs of bytes, not those defined by any version of Wasmtime.
+> (this means that if you cache blobs across versions of Wasmtime you can be safely guaranteed that future versions of Wasmtime will reject old cache entries).
 
 Wasmtime ensures safety by producing an error when an incompatible version of a module is loaded. This allows us to handle such errors gracefully by downloading and re-optimizing the module as needed.
 Alternatively, we could save metadata alongside the binary blob containing the version and configuration details. Wasmtime includes mechanisms for version tracking to assist in ensuring compatibility.
