@@ -19,10 +19,9 @@ Additionally, the user will be able to rollback to a previous policy version in 
 [motivation]: #motivation
 
 This change addresses a critical issue with the Policy Server.
-Currently, if a policy fails to load—due to reasons such as an inability to download it from the registry or incorrect settings—the Policy Server exits with an error,
-causing the pod to enter a CrashLoopBackOff state.
+Currently, a policy can fail to load for a variety of reasons. For example, an inability to download from the registry or incorrect settings. This causes the Policy Server to exit with an error, causing the pod to enter a CrashLoopBackOff state.
 Resolving this requires inspecting the error messages from the Policy Server pod and fixing the underlying issue.
-However, a user might have the permissions to create a policy but lack the necessary permissions to check the logs of the Policy Server, making it challenging to diagnose and resolve the problem.
+However, a user might have the permissions to create a policy but lack the necessary permissions to check the logs of the Policy Server. This presents challenges to diagnosis and resolution of problems.
 Additionally, when updating a policy, there is no status reported to indicate the failure. The policy remains in the Active state even while the Policy Server is stuck in a crash loop.
 This creates a significant risk, as new Policy Server pods might fail to start, and the old ones running the previous functional configuration could be lost if their node becomes unavailable.
 This situation can disrupt the cluster, as all incoming admission requests will be denied in the absence of operational Policy Server instances.
@@ -30,7 +29,7 @@ This situation can disrupt the cluster, as all incoming admission requests will 
 The proposed changes aim to address these issues by introducing a new policy lifecycle that includes the following features:
 
 - Hot reload of policies: The Policy Server will be able to load a new policy without requiring a restart.
-- Policy validation: The Policy Server will validate the policy before loading it, ensuring that it is correctly compiled and can be loaded.
+- Policy validation: The Policy Server will validate the policy before loading it, ensuring correct pre-compilation and loading.
 - Policy status monitoring: The Policy Server will report the status of the policy, indicating whether it was loaded successfully or if an error occurred.
 - Policy versioning: The Policy Server will keep running with a previous version of the policy in case of issues with the latest policy.
 - Policy rollback: The user will be able to rollback to a previous policy version in case of issues with the latest policy.
@@ -39,12 +38,12 @@ The proposed changes aim to address these issues by introducing a new policy lif
 
 [examples]: #examples
 
-- As a user, I want to load a new policy/update an existing policy without requiring a restart of the policy server.
-- As a user, I want to know if a policy was pulled or validated successfully.
-- As a user, I want to monitor the status of a policy on specific policy server replica so that I can identify and resolve issues with the policy.
-- As a user, I want that the policy server keeps running with a previous version of the policy in case of issues with the latest policy.
+- As a user, I want to load a new policy or update an existing policy without requiring a restart of the policy server.
+- As a user, I want to know if a policy was successfully pulled, precompiled, and validated.
+- As a user, I want to monitor the status of a policy on a specific policy server replica so that I can identify and resolve issues with the policy.
+- As a user, I want the policy server to remain running with a previous version of the policy in case of issues with the latest policy.
 - As a user, I want to rollback to a previous policy version in case of issues with the latest policy.
-- As a user, I want to debug issues with the namespaced policies I own without needing to involve the cluster administrator.
+- As a user, I want to debug issues with the namespaced policies I own without involving the cluster administrator.
 
 # Detailed design
 
@@ -54,16 +53,16 @@ The proposed changes aim to address these issues by introducing a new policy lif
 
 ## Concepts
 
-To implemenet the new policy lifecycle, we will introduce the following concepts:
+To implement the new policy lifecycle, we introduce the following concepts:
 
 ### Hot reload
 
 The Policy Server will be able to load a new policy without requiring a restart.
-This is will be achieved by refactoring the `EvaluationEnvironment` adding methods to set, update and remove policies.
+This will be achieved by refactoring the `EvaluationEnvironment` and adding methods to set, update, and remove policies.
 
 ### The Policy Server acts as a controller
 
-At the time of writing the Policy Server is configured with a ConfigMap that contains all the policies to be loaded.
+Currently, the Policy Server is configured with a ConfigMap that contains all the policies to be loaded.
 When a new policy is created, the ConfigMap is updated, and the Policy Server is restarted to load the new policy.
 
 We want to change this behavior to allow the Policy Server to act as a controller that can load new policies without requiring a restart.
@@ -73,7 +72,7 @@ We want to change this behavior to allow the Policy Server to act as a controlle
 We will introduce a new CRD called `PolicyRevision` to store the state of a policy in relation to the Policy Server replicas.
 `PolicyRevisions` are namespaced resources, and they will be created in the same namespace as the controller.
 
-The PolicyRevision will include fields to store the policy content and an `enabled` field to specify whether the policy should be served by the Policy Server.
+The `PolicyRevision` will include fields to store the policy content and an `enabled` field to specify whether the policy should be served by the Policy Server.
 The `PolicyRevision` will include a `policyGeneration` field to store the generation of the associated `Policy`.
 This field will be set to the value of `metadata.generation` from the `Policy` CRD at the time the `PolicyRevision` is created.
 This approach allows the Policy Server to manage multiple generations of a policy at the same time, facilitating the gradual rollout of updates.
@@ -89,7 +88,7 @@ In summary:
 - A `Policy` specifies the desired state of a policy.
 - One or more `PolicyRevisions` with `enabled` set to `true` represent the active policies currently served by the Policy Server.
 - A `PolicyRevision` with `enabled` set to `true` and `policyGeneration` matching the current generation of the `Policy` represents the desired state of the policy within the Policy Server's evaluation environment.
-- `PolicyRevisions` with `enabled` set to `false` represent previous states of the policies, retained for potential rollback scenarios.
+- `PolicyRevisions` with `enabled` set to `false` represents previous states of the policies, retained for potential rollback scenarios.
 
 When a new Policy is created, the controller will create a new `PolicyRevision` resource with the policy content and set the `enabled` field to `true`.
 Additionally, the controller will add a `kubewarden.io/policy-server` label to the `PolicyRevision` to filter the policies for a specific Policy Server.
@@ -159,7 +158,7 @@ status:
 ```
 
 The `PolicyRevision` is comparable to the [`ControllerRevision`](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/controller-revision-v1/) resource in Kubernetes.
-The data field is of type `RawExtension`, which allows it to store any type of policy.
+The data field is of type `RawExtension`, allowing it to store any policy type.
 
 The Policy Server replicas will be watching the new `PolicyRevision` CRD directly and it will change the internal state of the evaluation environment when a new policy is created or updated.
 
@@ -188,7 +187,7 @@ For example, the endpoint `/validate/privileged-pods/2` validates requests using
 
 The `PolicyRevision` CRD will have a status field to store the status of the policy.
 The status will be propagated to the `Policy` CRD by the controller, so that the user can monitor the status of the policy without having to access the `PolicyRevision` CRD.
-Being the `PolicyRevision` CRD a namespaced resource, only admin users will have the right permissions to access it.
+As the `PolicyRevision` CRD is a namespaced resource, only admin users will have the right permissions to access it.
 
 #### PolicyServer bootstrap
 
@@ -224,12 +223,12 @@ This is documented [here](https://docs.rs/wasmtime/latest/wasmtime/struct.Module
 
 Wasmtime ensures safety by producing an error when an incompatible version of a module is loaded. This allows us to handle such errors gracefully by downloading and re-optimizing the module as needed.
 Alternatively, we could save metadata alongside the binary blob containing the version and configuration details. Wasmtime includes mechanisms for version tracking to assist in ensuring compatibility.
-Please refer to the [Wasmtime documentation](https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.module_version) for more information about module versions strategies.
+Please refer to the [Wasmtime documentation](https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.module_version) for more information about module version strategies.
 
 Therefore, we need to store precompiled modules in a path that includes the Policy Server version.
 This ensures compatibility when the Policy Server is updated, and the precompiled modules might no longer work with the new version.
 Example: `/cache/ghcr.io/kubewarden/policies/safe-labels/v1.0.0/optimized-kw-v1.28.1.wasm`.
-TODO: explain this example
+Where `v1.0.0` is the policy version and `v1.28.1` the policy-server version.
 
 #### Security Implications
 
@@ -313,7 +312,7 @@ Given the concepts described above, the policy creation lifecycle will be as fol
    - If an error occurs, the status condition of type `Ready` will be set to `False` with the appropriate reason and message.
 9. The `Ready` status is propagated to the `Policy` CRD.
 10. When all the replicas have set the `Ready` status to true, the controller creates a Webhook configuration with the `generation` query parameter set to the `PolicyRevision` generation.
-11. The policy is now read to be used.
+11. The policy is now ready to be used.
 
 The policy update lifecycle will be as follows:
 
@@ -329,10 +328,10 @@ The policy update lifecycle will be as follows:
 8. Every replica will report the status of the policy to the `PolicyRevision` CRD, setting the status condition of type `Ready` to `True`.
    - If an error occurs, the status condition of type `Ready` will be set to `False` with the appropriate reason and message.
 9. The `Ready` status is propagated to the `Policy` CRD.
-10. When all the replicas have set the `Ready` status to true, the controller creates updateds the Webhook configuration with the `generation` query parameter set to the `PolicyRevision` generation.
+10. When all the replicas have set the `Ready` status to true, the controller creates or updates the Webhook configuration with the `generation` query parameter set to the `PolicyRevision` generation.
     - If an error occurred in the previous steps, the controller will not update the Webhook configuration.
 11. The controller garbage collects the old `PolicyRevisions` and precompiled modules, keeping only the last `n` revisions.
-12. The policy is now read to be used.
+12. The policy is now ready to be used.
 
 ## PolicyServer Lifecycle
 
