@@ -351,6 +351,267 @@ Given the concepts described above, the policy lifecycle will be as follows:
 14. The controller removes the conditions of the old `PolicyRevision` from the `Policy` CRD.
 15. The policy is now ready to be used.
 
+### Example status transitions
+
+The `Policy` is created:
+
+```yaml
+status:
+  conditions:
+    - type: Scheduled
+      status: False
+      reason: WaitingForPolicyServer
+      message: "The policy was created and is pending to be loaded."
+      generation: 1
+```
+
+The `PolicyServer` leader has received the `PolicyRevision`:
+
+```yaml
+status:
+  conditions:
+    - type: Scheduled
+      status: True
+      reason: PolicyScheduled
+      message: "The policy was scheduled by the PolicyServer."
+      generation: 1
+```
+
+The `PolicyServer` leader has pulled, precompiled, validated and stored the policy:
+
+```yaml
+status:
+  conditions:
+    - type: Scheduled
+      status: True
+      reason: PolicyScheduled
+      message: "The policy was scheduled by the PolicyServer."
+      generation: 1
+    - type: Initialized
+      status: True
+      reason: PolicyInitialized
+      message: "The policy was successfully initialized."
+      generation: 1
+```
+
+The `PolicyServer` leader has loaded the policy:
+
+```yaml
+status:
+  conditions:
+    - type: Scheduled
+      status: True
+      reason: PolicyScheduled
+      message: "The policy was scheduled by the PolicyServer."
+      generation: 1
+    - type: Initialized
+      status: True
+      reason: PolicyInitialized
+      message: "The policy was successfully initialized."
+      generation: 1
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 1
+      replica: 0
+```
+
+The other replicas have loaded the policy:
+
+```yaml
+status:
+  conditions:
+    - type: Scheduled
+      status: True
+      reason: PolicyScheduled
+      message: "The policy was scheduled by the PolicyServer."
+      generation: 1
+    - type: Initialized
+      status: True
+      reason: PolicyInitialized
+      message: "The policy was successfully initialized."
+      generation: 1
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 1
+      replica: 0
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 1
+      replica: 1
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 1
+      replica: 2
+```
+
+The `Policy` is updated:
+
+```yaml
+status:
+  conditions:
+    - type: Scheduled
+      status: True
+      reason: PolicyScheduled
+      message: "The policy was scheduled by the PolicyServer."
+      generation: 1
+    - type: Initialized
+      status: True
+      reason: PolicyInitialized
+      message: "The policy was successfully initialized."
+      generation: 1
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 1
+      replica: 0
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 1
+      replica: 1
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 1
+      replica: 2
+    - type: Scheduled
+      status: False
+      reason: WaitingForPolicyServer
+      message: "The policy was created and is pending to be loaded."
+      generation: 2
+```
+
+The `PolicyServer` leader has received the updated `PolicyRevision`:
+
+```yaml
+status:
+  conditions:
+    - type: Scheduled
+      status: True
+      reason: PolicyScheduled
+      message: "The policy was scheduled by the PolicyServer."
+      generation: 1
+    - type: Initialized
+      status: True
+      reason: PolicyInitialized
+      message: "The policy was successfully initialized."
+      generation: 1
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 1
+      replica: 0
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 1
+      replica: 1
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 1
+      replica: 2
+    - type: Scheduled
+      status: True
+      reason: PolicyScheduled
+      message: "The policy was scheduled by the PolicyServer."
+      generation: 2
+```
+
+The `PolicyServer` leader has pulled, precompiled, validated and stored the updated policy:
+
+```yaml
+status:
+  conditions:
+    - type: Scheduled
+      status: True
+      reason: PolicyScheduled
+      message: "The policy was scheduled by the PolicyServer."
+      generation: 1
+    - type: Initialized
+      status: True
+      reason: PolicyInitialized
+      message: "The policy was successfully initialized."
+      generation: 1
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 1
+      replica: 0
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 1
+      replica: 1
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 1
+      replica: 2
+    - type: Scheduled
+      status: True
+      reason: PolicyScheduled
+      message: "The policy was scheduled by the PolicyServer."
+      generation: 2
+    - type: Initialized
+      status: True
+      reason: PolicyInitialized
+      message: "The policy was successfully initialized."
+      generation: 2
+```
+
+All the replicas have loaded the updated policy, the old policy conditions are removed from the status:
+
+```yaml
+status:
+  conditions:
+    - type: Scheduled
+      status: True
+      reason: PolicyScheduled
+      message: "The policy was scheduled by the PolicyServer."
+      generation: 2
+    - type: Initialized
+      status: True
+      reason: PolicyInitialized
+      message: "The policy was successfully initialized."
+      generation: 2
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 2
+      replica: 0
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 2
+      replica: 1
+    - type: Ready
+      status: True
+      reason: PolicyReady
+      message: "The policy is ready to be used."
+      generation: 2
+      replica: 2
+```
+
 ## PolicyServer Lifecycle
 
 ### Rolling Update
@@ -412,3 +673,19 @@ Why should we **not** do this?
 - What are the unknowns?
 - What can happen if Murphy's law holds true?
 --->
+
+```
+
+```
+
+```
+
+```
+
+```
+
+```
+
+```
+
+```
