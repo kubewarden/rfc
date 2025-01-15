@@ -310,21 +310,21 @@ Given the concepts described above, the policy lifecycle will be as follows:
 ### Policy Creation
 
 1. The user creates a new `Policy`.
-2. The controller creates a new `PolicyRevision` resource with the policy content and sets the `enabled` field to `true`.
+2. The Kubewarden controller creates a new `PolicyRevision` resource with the policy content and sets the `enabled` field to `true`.
    It also sets the `policyGeneration` field to the value of `metadata.generation` from the `Policy` CRD and adds the `Scheduled` status condition set to `False` to both the `Policy` and `PolicyRevision` CRDs.
-3. The new `PolicyRevision` triggers the leader reconciler. The leader sets the status condition of type `Scheduled` of the `PolicyRevision` to `True`.
+3. The new `PolicyRevision` triggers the leader reconciler. The Policy Server leader sets the status condition of type `Scheduled` of the `PolicyRevision` to `True`.
    - If Policy Server specified in the `Policy` CRD is not running, the status condition of type `Scheduled` will be set to `False` with the appropriate reason and message.
-4. The controller propagates the status condition to the `Policy` CRD.
-5. The leader pulls the policy from the registry, precompiles the policy, and stores it in the shared cache.
-6. The leader validates the policy settings.
-7. The leader changes the status condition of type `Initialized` of the `PolicyRevision` to `True`.
+4. The Kubewarden controller propagates the status condition to the `Policy` CRD.
+5. The Policy Server leader pulls the policy from the registry, precompiles the policy, and stores it in the shared cache.
+6. The Policy Server leader validates the policy settings.
+7. The Policy Server leader changes the status condition of type `Initialized` of the `PolicyRevision` to `True`.
    - If an error occurred in the previous steps, the status condition of type `Initialized` will be set to `False` with the appropriate reason and message.
-8. The controller propagates the status condition to the `Policy` CRD.
+8. The Kubewarden controller propagates the status condition to the `Policy` CRD.
 9. The replica reconciler of all the replicas including the leader loads the policy in the evaluation environment.
 10. Every replica will report the status of the policy to the `PolicyRevision` CRD, setting the status condition of type `Ready` to `True`.
     - If an error occurs, the status condition of type `Ready` will be set to `False` with the appropriate reason and message.
 11. The `Ready` status is propagated to the `Policy` CRD.
-12. When all the replicas have set the `Ready` status to true, the controller creates a Webhook configuration pointing to the `PolicyRevision` generation.
+12. When all the replicas have set the `Ready` status to true, the Kubewarden controller creates a Webhook configuration pointing to the `PolicyRevision` generation.
     - If an error occurred in the previous steps, the controller will not update the Webhook configuration.
 13. The policy is now ready to be used.
 
@@ -413,21 +413,21 @@ sequenceDiagram
 ### Policy Update
 
 1. The user updates an existing `Policy`.
-2. The controller creates a new `PolicyRevision` resource with the policy content and sets the `enabled` field to `true`.
+2. The Kubewarden controller creates a new `PolicyRevision` resource with the policy content and sets the `enabled` field to `true`.
    It also sets the `policyGeneration` field to the value of `metadata.generation` from the `Policy` object and adds the `Scheduled` status condition set to `False` to both the `Policy` and `PolicyRevision` CRDs.
-3. The new `PolicyRevision` triggers the leader reconciler. The leader sets the status condition of type `Scheduled` of the `PolicyRevision` to `True`.
-4. The controller propagates the `Scheduled` status condition to the `Policy` CRD by adding a new condition with the generation of the `PolicyRevision`.
+3. The new `PolicyRevision` triggers the Policy Server leader reconciler. The Policy Server leader sets the status condition of type `Scheduled` of the `PolicyRevision` to `True`.
+4. The Kubewarden controller propagates the `Scheduled` status condition to the `Policy` CRD by adding a new condition with the generation of the `PolicyRevision`.
    The conditions of the previous `PolicyRevision` will be preserved.
-5. The leader pulls the policy from the registry, precompiles the policy, and stores it in the shared cache.
-6. The leader validates the policy settings.
-7. The leader changes the status condition of type `Initialized` of the `PolicyRevision` to `True`.
+5. The Policy Server leader pulls the policy from the registry, precompiles the policy, and stores it in the shared cache.
+6. The Policy Server leader validates the policy settings.
+7. The Policy Server leader changes the status condition of type `Initialized` of the `PolicyRevision` to `True`.
    - If an error occurred in the previous steps, the status condition of type `Initialized` will be set to `False` with the appropriate reason and message.
-8. The controller propagates the status condition to the `Policy` CRD by adding a new condition with the generation of the `PolicyRevision`.
-9. The replica reconciler of all the replicas including the leader loads the policy in the evaluation environment.
+8. The Kubewarden controller propagates the status condition to the `Policy` CRD by adding a new condition with the generation of the `PolicyRevision`.
+9. Thereplica reconciler of all the replicas including the leader loads the policy in the evaluation environment.
 10. Every replica will report the status of the policy to the `PolicyRevision` CRD, setting the status condition of type `Ready` to `True`.
     - If an error occurs, the status condition of type `Ready` will be set to `False` with the appropriate reason and message.
 11. The `Ready` status is propagated to the `Policy` CRD by adding a new condition with the generation of the `PolicyRevision`.
-12. When all the replicas have set the `Ready` status to true, the controller creates a Webhook configuration pointing to the `PolicyRevision` generation.
+12. When all the replicas have set the `Ready` status to true, the Kubewarden controller creates a Webhook configuration pointing to the `PolicyRevision` generation.
     - If an error occurred in the previous steps, the controller will not update the Webhook configuration.
 13. The controller garbage collects the old `PolicyRevisions` and precompiled modules, keeping only the last `n` revisions.
 14. The controller removes the conditions of the old `PolicyRevision` from the `Policy` CRD.
