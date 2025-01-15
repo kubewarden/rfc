@@ -282,6 +282,12 @@ conditions:
     generation: 1
 ```
 
+### Kubernetes Events
+
+The controller will generate [Kubernetes Events](https://kubernetes.io/docs/reference/kubernetes-api/cluster-resources/event-v1/) to reflect the status of a policy.
+Events will be created during policy status transitions, such as when a new policy is created, successfully loaded, or encounters an error.
+This enables users to track the policy's status using `kubectl get events`.
+
 ### Rollback
 
 If a policy fails to load, the Policy Server will keep running with the previous valid policy.
@@ -299,7 +305,9 @@ This will prevent the cache from growing indefinitely and consuming unnecessary 
 
 ## Policy Lifecycle
 
-Given the concepts described above, the policy creation lifecycle will be as follows:
+Given the concepts described above, the policy lifecycle will be as follows:
+
+### Policy Creation
 
 1. The user creates a new `Policy`.
 2. The controller creates a new `PolicyRevision` resource with the policy content and sets the `enabled` field to `true`.
@@ -320,7 +328,7 @@ Given the concepts described above, the policy creation lifecycle will be as fol
     - If an error occurred in the previous steps, the controller will not update the Webhook configuration.
 13. The policy is now ready to be used.
 
-The policy update lifecycle will be as follows:
+### Policy Update
 
 1. The user updates an existing `Policy`.
 2. The controller creates a new `PolicyRevision` resource with the policy content and sets the `enabled` field to `true`.
