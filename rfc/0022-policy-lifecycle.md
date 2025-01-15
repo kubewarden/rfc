@@ -285,7 +285,7 @@ conditions:
 ### Kubernetes Events
 
 The controller will generate [Kubernetes Events](https://kubernetes.io/docs/reference/kubernetes-api/cluster-resources/event-v1/) to reflect the status of a policy.
-Events will be created during policy status transitions, such as when a new policy is created, successfully loaded, or encounters an error.
+Events will be created during policy status transitions, such as when a new policy is created, updated, successfully loaded, or encounters an error.
 This enables users to track the policy's status using `kubectl get events`.
 
 ### Rollback
