@@ -245,7 +245,9 @@ This will allow us to identify the status of a policy on a specific Policy Serve
 
 ### Policy Status
 
-We will use the [status condition](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties) convention to report the status of the policy.
+#### Status Conditions
+
+We will use the [status conditions](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties) convention to report the status of the policy.
 The status condition struct will be extended to include the replica number.
 The approach of extending the status condition struct is already used in the Kubernetes codebase,
 for example in the [Pod conditions](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-conditions).
@@ -281,6 +283,18 @@ conditions:
     message: "Cannot pull the policy from the registry."
     generation: 1
 ```
+
+#### Policy phase
+
+Similar to the Pod phase, a phase field will be added to the Policy CRD.
+The phase of a Policy is a simple, high-level summary of where the policy is in its lifecycle.
+
+Here are the possible values for `phase`:
+
+- `Pending`: The policy was created and is pending to be loaded.
+- `Updating`: The policy was updated and is pending to be loaded.
+- `Active`: The policy was successfully loaded and is ready to be used.
+- `Failed`: The policy failed to load.
 
 ### Kubernetes Events
 
