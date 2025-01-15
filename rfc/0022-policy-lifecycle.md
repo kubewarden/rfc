@@ -328,6 +328,88 @@ Given the concepts described above, the policy lifecycle will be as follows:
     - If an error occurred in the previous steps, the controller will not update the Webhook configuration.
 13. The policy is now ready to be used.
 
+### Sequence diagram
+
+```mermaid
+sequenceDiagram
+    participant user as User
+    participant kube as Kubernetes
+    participant kw_controller as Kubewarden controller
+    participant ps_leader as PolicyServer 0 (leader)
+    participant storage as Persistent Volume (RWX)
+    participant ps_non_leader as PolicyServer 1 (non-leader)
+
+    user-->>kube: create ClusterAdmissionPolicy
+    kw_controller<<-->>kube: watch ClusterAdmissionPolicy resources
+    activate kw_controller
+    kw_controller-->>kw_controller: reconcile
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>- type: Scheduled<br/>  status: False<br/>  generation: 1
+    kw_controller->>kube: create PolicyRevision
+    deactivate kw_controller
+
+    ps_non_leader<<-->>kube: watch PolicyRevision resources
+    activate ps_non_leader
+    ps_non_leader->>ps_non_leader: reconcile new PolicyRevision resource
+    note right of ps_non_leader: waiting for the leader to initialize the policy
+    deactivate ps_non_leader
+
+    activate ps_leader
+    ps_leader<<-->>kube: watch PolicyRevision resources
+    note over ps_leader, kube: PolicyRevision<br/><br/>status.conditions:<br/>- type: Scheduled<br/>  status: True<br/>  generation: 1
+    ps_leader->>kube: update PolicyRevision status.conditions
+
+    activate kw_controller
+    kw_controller->>kw_controller: watch PolicyRevision
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>- type: Scheduled<br/>  status: True<br/>  generation: 1
+    kw_controller->>kube: update ClusterAdmissionPolicy status.conditions
+    deactivate kw_controller
+
+    ps_leader->>ps_leader: fetch policy
+    ps_leader->>ps_leader: optimize wasm module
+    ps_leader->>ps_leader: validate policy settings
+    ps_leader->>storage: write original.wasm module
+    ps_leader->>storage: sign original.wasm module using its sigstore key
+    ps_leader->>storage: write optimized.wasm module
+    ps_leader->>storage: sign optimized.wasm module using its sigstore key
+
+    note right of ps_leader: policy exposed at:<br>/validate/cap-foo/1
+    ps_leader->>ps_leader: host policy and expose it
+
+    note over ps_leader, kube: PolicyRevision<br/><br/>status.conditions:<br/>...<br/>- type: Initialized<br/>  status: True<br/>  generation: 1<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0
+    ps_leader->>kube: update PolicyRevision status.conditions
+    deactivate ps_leader
+
+    activate kw_controller
+    kw_controller->>kw_controller: watch PolicyRevision
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>...<br/>- type: Initialized<br/>  status: True<br/>  generation: 1<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0
+    kw_controller->>kube: update ClusterAdmissionPolicy status.conditions
+    deactivate kw_controller
+
+    ps_non_leader<<-->>kube: watch PolicyRevision resources
+    activate ps_non_leader
+    ps_non_leader->>ps_non_leader: reconcile change to PolicyRevision resource
+    note right of ps_non_leader: policy is validated, time to serve it
+    ps_non_leader->>storage: lookup optimized.wasm file
+    ps_non_leader->>ps_non_leader: verify integrity of optimized.wasm file with sigstore
+    note right of ps_non_leader: policy exposed at:<br>/validate/cap-foo/1
+    ps_non_leader->>ps_non_leader: host policy and expose it
+    note over ps_non_leader, kube: PolicyRevision<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1
+    ps_non_leader->>kube: update PolicyRevision status.conditions
+    deactivate ps_non_leader
+
+    activate kw_controller
+    kw_controller->>kw_controller: watch PolicyRevision
+    note right of kw_controller: ClusterAdmissionPolicy hosted by all PolicyServer instances
+    note over kw_controller, kube: ValidatingWebhookConfiguration<br/>endpoint: /validate/cap-foo/1
+    kw_controller->>kube: create ValidatingWebhookConfiguration
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1
+    kw_controller->>kube: update ClusterAdmissionPolicy status.conditions
+    deactivate kw_controller
+
+    activate user
+    user-->>kube: observe ClusterAdmissionPolicy status.conditions
+```
+
 ### Policy Update
 
 1. The user updates an existing `Policy`.
@@ -350,6 +432,88 @@ Given the concepts described above, the policy lifecycle will be as follows:
 13. The controller garbage collects the old `PolicyRevisions` and precompiled modules, keeping only the last `n` revisions.
 14. The controller removes the conditions of the old `PolicyRevision` from the `Policy` CRD.
 15. The policy is now ready to be used.
+
+#### Sequence diagram
+
+```mermaid
+sequenceDiagram
+    participant user as User
+    participant kube as Kubernetes
+    participant kw_controller as Kubewarden controller
+    participant ps_leader as PolicyServer 0 (leader)
+    participant storage as Persistent Volume (RWX)
+    participant ps_non_leader as PolicyServer 1 (non-leader)
+
+    user-->>kube: update ClusterAdmissionPolicy
+    kw_controller<<-->>kube: watch ClusterAdmissionPolicy resources
+    activate kw_controller
+    kw_controller-->>kw_controller: reconcile
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1<br/>- type: Scheduled<br/>  status: False<br/>  generation: 2
+    kw_controller->>kube: create PolicyRevision
+    deactivate kw_controller
+
+    ps_non_leader<<-->>kube: watch PolicyRevision resources
+    activate ps_non_leader
+    ps_non_leader->>ps_non_leader: reconcile new PolicyRevision resource
+    note right of ps_non_leader: waiting for the leader to initialize the policy
+    deactivate ps_non_leader
+
+    activate ps_leader
+    ps_leader<<-->>kube: watch PolicyRevision resources
+    note over ps_leader, kube: PolicyRevision<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1<br/>- type: Scheduled<br/>  status: True<br/>  generation: 1
+    ps_leader->>kube: update PolicyRevision status.conditions
+
+    activate kw_controller
+    kw_controller->>kw_controller: watch PolicyRevision
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1<br/>- type: Scheduled<br/>  status: True<br/>  generation: 1
+    kw_controller->>kube: update ClusterAdmissionPolicy status.conditions
+    deactivate kw_controller
+
+    ps_leader->>ps_leader: fetch policy
+    ps_leader->>ps_leader: optimize wasm module
+    ps_leader->>ps_leader: validate policy settings
+    ps_leader->>storage: write original.wasm module
+    ps_leader->>storage: sign original.wasm module using its sigstore key
+    ps_leader->>storage: write optimized.wasm module
+    ps_leader->>storage: sign optimized.wasm module using its sigstore key
+
+    note right of ps_leader: policy exposed at:<br>/validate/cap-foo/2
+    ps_leader->>ps_leader: host policy and expose it
+
+    note over ps_leader, kube: PolicyRevision<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1<br/>- type: Initialized<br/>  status: True<br/>  generation: 2<br/>- type: Ready<br/>  status: True<br/>  generation: 2<br/>  replica: 0
+    ps_leader->>kube: update PolicyRevision status.conditions
+    deactivate ps_leader
+
+    activate kw_controller
+    kw_controller->>kw_controller: watch PolicyRevision
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1<br/>- type: Initialized<br/>  status: True<br/>  generation: 2<br/>- type: Ready<br/>  status: True<br/>  generation: 2<br/>  replica: 0
+    kw_controller->>kube: update ClusterAdmissionPolicy status.conditions
+    deactivate kw_controller
+
+    ps_non_leader<<-->>kube: watch PolicyRevision resources
+    activate ps_non_leader
+    ps_non_leader->>ps_non_leader: reconcile change to PolicyRevision resource
+    note right of ps_non_leader: policy is validated, time to serve it
+    ps_non_leader->>storage: lookup optimized.wasm file
+    ps_non_leader->>ps_non_leader: verify integrity of optimized.wasm file with sigstore
+    note right of ps_non_leader: policy exposed at:<br>/validate/cap-foo/2
+    ps_non_leader->>ps_non_leader: host policy and expose it
+    note over ps_non_leader, kube: PolicyRevision<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 2<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 2<br/>  replica: 1
+    ps_non_leader->>kube: update PolicyRevision status.conditions
+    deactivate ps_non_leader
+
+    activate kw_controller
+    kw_controller->>kw_controller: watch PolicyRevision
+    note right of kw_controller: ClusterAdmissionPolicy hosted by all PolicyServer instances
+    note over kw_controller, kube: ValidatingWebhookConfiguration<br/>endpoint: /validate/cap-foo/2
+    kw_controller->>kube: create ValidatingWebhookConfiguration
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 2<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 2<br/>  replica: 1
+    kw_controller->>kube: update ClusterAdmissionPolicy status.conditions
+    deactivate kw_controller
+
+    activate user
+    user-->>kube: observe ClusterAdmissionPolicy status.conditions
+```
 
 ### Example status transitions
 
