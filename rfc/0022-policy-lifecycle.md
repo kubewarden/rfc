@@ -324,23 +324,27 @@ Given the concepts described above, the policy lifecycle will be as follows:
 ### Policy Creation
 
 1. The user creates a new `Policy`.
-2. The Kubewarden controller creates a new `PolicyRevision` resource with the policy content and sets the `enabled` field to `true`.
+2. The Kubewarden controller sets the phase of the `Policy` to `Pending`.
+3. The Kubewarden controller creates a new `PolicyRevision` resource with the policy content and sets the `enabled` field to `true`.
    It also sets the `policyGeneration` field to the value of `metadata.generation` from the `Policy` CRD and adds the `Scheduled` status condition set to `False` to both the `Policy` and `PolicyRevision` CRDs.
-3. The new `PolicyRevision` triggers the leader reconciler. The Policy Server leader sets the status condition of type `Scheduled` of the `PolicyRevision` to `True`.
+4. The new `PolicyRevision` triggers the leader reconciler. The Policy Server leader sets the status condition of type `Scheduled` of the `PolicyRevision` to `True`.
    - If Policy Server specified in the `Policy` CRD is not running, the status condition of type `Scheduled` will be set to `False` with the appropriate reason and message.
-4. The Kubewarden controller propagates the status condition to the `Policy` CRD.
-5. The Policy Server leader pulls the policy from the registry, precompiles the policy, and stores it in the shared cache.
-6. The Policy Server leader validates the policy settings.
-7. The Policy Server leader changes the status condition of type `Initialized` of the `PolicyRevision` to `True`.
+5. The Kubewarden controller propagates the status condition to the `Policy` CRD.
+6. The Policy Server leader pulls the policy from the registry, precompiles the policy, and stores it in the shared cache.
+7. The Policy Server leader validates the policy settings.
+8. The Policy Server leader changes the status condition of type `Initialized` of the `PolicyRevision` to `True`.
    - If an error occurred in the previous steps, the status condition of type `Initialized` will be set to `False` with the appropriate reason and message.
-8. The Kubewarden controller propagates the status condition to the `Policy` CRD.
-9. The replica reconciler of all the replicas including the leader loads the policy in the evaluation environment.
-10. Every replica will report the status of the policy to the `PolicyRevision` CRD, setting the status condition of type `Ready` to `True`.
+     The phase of the `Policy` will be set to `Failed` by the Kubewarden controller.
+9. The Kubewarden controller propagates the status condition to the `Policy` CRD.
+10. The replica reconciler of all the replicas including the leader loads the policy in the evaluation environment.
+11. Every replica will report the status of the policy to the `PolicyRevision` CRD, setting the status condition of type `Ready` to `True`.
     - If an error occurs, the status condition of type `Ready` will be set to `False` with the appropriate reason and message.
-11. The `Ready` status is propagated to the `Policy` CRD.
-12. When all the replicas have set the `Ready` status to true, the Kubewarden controller creates a Webhook configuration pointing to the `PolicyRevision` generation.
-    - If an error occurred in the previous steps, the controller will not update the Webhook configuration.
-13. The policy is now ready to be used.
+      The phase of the `Policy` will be set to `Failed` by the Kubewarden controller.
+12. The `Ready` status is propagated to the `Policy` CRD.
+13. When all the replicas have set the `Ready` status to true, the Kubewarden controller creates a Webhook configuration pointing to the `PolicyRevision` generation.
+    - If an error occurred in the previous steps, the controller will not update the Webhook configuration. The phase of the `Policy` will be set to `Failed`.
+14. The phase of the `Policy` will be set to `Active` by the Kubewarden controller.
+15. The policy is now ready to be used.
 
 ### Sequence diagram
 
@@ -357,7 +361,7 @@ sequenceDiagram
     kw_controller<<-->>kube: watch ClusterAdmissionPolicy resources
     activate kw_controller
     kw_controller-->>kw_controller: reconcile
-    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>- type: Scheduled<br/>  status: False<br/>  generation: 1
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.phase: Pending<br/>status.conditions:<br/>- type: Scheduled<br/>  status: False<br/>  generation: 1
     kw_controller->>kube: create PolicyRevision
     deactivate kw_controller
 
@@ -374,7 +378,7 @@ sequenceDiagram
 
     activate kw_controller
     kw_controller->>kw_controller: watch PolicyRevision
-    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>- type: Scheduled<br/>  status: True<br/>  generation: 1
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.phase: Pending<br/>status.conditions:<br/>- type: Scheduled<br/>  status: True<br/>  generation: 1
     kw_controller->>kube: update ClusterAdmissionPolicy status.conditions
     deactivate kw_controller
 
@@ -395,7 +399,7 @@ sequenceDiagram
 
     activate kw_controller
     kw_controller->>kw_controller: watch PolicyRevision
-    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>...<br/>- type: Initialized<br/>  status: True<br/>  generation: 1<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.phase: Pending<br/>status.conditions:<br/>...<br/>- type: Initialized<br/>  status: True<br/>  generation: 1<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0
     kw_controller->>kube: update ClusterAdmissionPolicy status.conditions
     deactivate kw_controller
 
@@ -416,7 +420,7 @@ sequenceDiagram
     note right of kw_controller: ClusterAdmissionPolicy hosted by all PolicyServer instances
     note over kw_controller, kube: ValidatingWebhookConfiguration<br/>endpoint: /validate/cap-foo/1
     kw_controller->>kube: create ValidatingWebhookConfiguration
-    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.phase: Active<br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1
     kw_controller->>kube: update ClusterAdmissionPolicy status.conditions
     deactivate kw_controller
 
@@ -427,25 +431,32 @@ sequenceDiagram
 ### Policy Update
 
 1. The user updates an existing `Policy`.
-2. The Kubewarden controller creates a new `PolicyRevision` resource with the policy content and sets the `enabled` field to `true`.
+2. The Kubewarden controller sets the phase of the `Policy` to `Updating`.
+3. The Kubewarden controller creates a new `PolicyRevision` resource with the policy content and sets the `enabled` field to `true`.
    It also sets the `policyGeneration` field to the value of `metadata.generation` from the `Policy` object and adds the `Scheduled` status condition set to `False` to both the `Policy` and `PolicyRevision` CRDs.
-3. The new `PolicyRevision` triggers the Policy Server leader reconciler. The Policy Server leader sets the status condition of type `Scheduled` of the `PolicyRevision` to `True`.
-4. The Kubewarden controller propagates the `Scheduled` status condition to the `Policy` CRD by adding a new condition with the generation of the `PolicyRevision`.
+4. The new `PolicyRevision` triggers the Policy Server leader reconciler. The Policy Server leader sets the status condition of type `Scheduled` of the `PolicyRevision` to `True`.
+5. The Kubewarden controller propagates the `Scheduled` status condition to the `Policy` CRD by adding a new condition with the generation of the `PolicyRevision`.
    The conditions of the previous `PolicyRevision` will be preserved.
-5. The Policy Server leader pulls the policy from the registry, precompiles the policy, and stores it in the shared cache.
-6. The Policy Server leader validates the policy settings.
-7. The Policy Server leader changes the status condition of type `Initialized` of the `PolicyRevision` to `True`.
+6. The Policy Server leader pulls the policy from the registry, precompiles the policy, and stores it in the shared cache.
+7. The Policy Server leader validates the policy settings.
+8. The Policy Server leader changes the status condition of type `Initialized` of the `PolicyRevision` to `True`.
    - If an error occurred in the previous steps, the status condition of type `Initialized` will be set to `False` with the appropriate reason and message.
-8. The Kubewarden controller propagates the status condition to the `Policy` CRD by adding a new condition with the generation of the `PolicyRevision`.
-9. The replica reconciler of all the replicas including the leader loads the policy in the evaluation environment.
-10. Every replica will report the status of the policy to the `PolicyRevision` CRD, setting the status condition of type `Ready` to `True`.
+     The phase of the `Policy` will be set to `Failed` by the Kubewarden controller.
+9. The Kubewarden controller propagates the status condition to the `Policy` CRD by adding a new condition with the generation of the `PolicyRevision`.
+10. The replica reconciler of all the replicas including the leader loads the policy in the evaluation environment.
+11. Every replica will report the status of the policy to the `PolicyRevision` CRD, setting the status condition of type `Ready` to `True`.
     - If an error occurs, the status condition of type `Ready` will be set to `False` with the appropriate reason and message.
-11. The `Ready` status is propagated to the `Policy` CRD by adding a new condition with the generation of the `PolicyRevision`.
-12. When all the replicas have set the `Ready` status to true, the Kubewarden controller updates the Webhook configuration pointing to the `PolicyRevision` generation.
+      The phase of the `Policy` will be set to `Failed` by the Kubewarden controller.
+12. The `Ready` status is propagated to the `Policy` CRD by adding a new condition with the generation of the `PolicyRevision`.
+13. When all the replicas have set the `Ready` status to true, the Kubewarden controller updates the Webhook configuration pointing to the `PolicyRevision` generation.
     - If an error occurred in the previous steps, the controller will not update the Webhook configuration.
-13. The controller garbage collects the old `PolicyRevisions` and precompiled modules, keeping only the last `n` revisions.
-14. The controller removes the conditions of the old `PolicyRevision` from the `Policy` CRD.
+      The phase of the `Policy` will be set to `Failed` by the Kubewarden controller.
+14. The Kubewarden controller updates the phase of the `Policy` to `Active`.
 15. The policy is now ready to be used.
+16. The Kubewarden controller sets the `enable` field of the previous `PolicyRevision` to `false`.
+17. As a result, the Policy Server replicas will stop serving the previous policy dropping the wasm module from the memory.
+18. The Kubewarden controller garbage collects the old `PolicyRevisions` and precompiled modules, keeping only the last `n` revisions.
+19. The Kubewarden controller removes the conditions of the old `PolicyRevision` from the `Policy` CRD.
 
 #### Sequence diagram
 
@@ -462,7 +473,7 @@ sequenceDiagram
     kw_controller<<-->>kube: watch ClusterAdmissionPolicy resources
     activate kw_controller
     kw_controller-->>kw_controller: reconcile
-    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1<br/>- type: Scheduled<br/>  status: False<br/>  generation: 2
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.phase: Updating<br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1<br/>- type: Scheduled<br/>  status: False<br/>  generation: 2
     kw_controller->>kube: create PolicyRevision
     deactivate kw_controller
 
@@ -479,7 +490,7 @@ sequenceDiagram
 
     activate kw_controller
     kw_controller->>kw_controller: watch PolicyRevision
-    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1<br/>- type: Scheduled<br/>  status: True<br/>  generation: 1
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.phase: Updating<br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1<br/>- type: Scheduled<br/>  status: True<br/>  generation: 1
     kw_controller->>kube: update ClusterAdmissionPolicy status.conditions
     deactivate kw_controller
 
@@ -500,7 +511,7 @@ sequenceDiagram
 
     activate kw_controller
     kw_controller->>kw_controller: watch PolicyRevision
-    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1<br/>- type: Initialized<br/>  status: True<br/>  generation: 2<br/>- type: Ready<br/>  status: True<br/>  generation: 2<br/>  replica: 0
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.phase: Updating<br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 1<br/>  replica: 1<br/>- type: Initialized<br/>  status: True<br/>  generation: 2<br/>- type: Ready<br/>  status: True<br/>  generation: 2<br/>  replica: 0
     kw_controller->>kube: update ClusterAdmissionPolicy status.conditions
     deactivate kw_controller
 
@@ -521,7 +532,7 @@ sequenceDiagram
     note right of kw_controller: ClusterAdmissionPolicy hosted by all PolicyServer instances
     note over kw_controller, kube: ValidatingWebhookConfiguration<br/>endpoint: /validate/cap-foo/2
     kw_controller->>kube: create ValidatingWebhookConfiguration
-    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 2<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 2<br/>  replica: 1
+    note over kw_controller, kube: ClusterAdmissionPolicy<br/><br/>status.phase: Active<br/>status.conditions:<br/>...<br/>- type: Ready<br/>  status: True<br/>  generation: 2<br/>  replica: 0<br/>- type: Ready<br/>  status: True<br/>  generation: 2<br/>  replica: 1
     kw_controller->>kube: update ClusterAdmissionPolicy status.conditions
     deactivate kw_controller
 
