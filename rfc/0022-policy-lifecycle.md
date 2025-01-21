@@ -292,7 +292,7 @@ The phase of a Policy is a simple, high-level summary of where the policy is in 
 Here are the possible values for `phase`:
 
 - `Pending`: The policy was created and is pending to be loaded.
-- `Updating`: The policy was updated and is pending to be loaded.
+- `Updating`: The policy was previously `Active`, has been updated, and the new version is awaiting loading. The old revision remains available and is still being served.
 - `Active`: The policy was successfully loaded and is ready to be used.
 - `Failed`: The policy failed to load.
 
@@ -437,11 +437,11 @@ sequenceDiagram
 7. The Policy Server leader changes the status condition of type `Initialized` of the `PolicyRevision` to `True`.
    - If an error occurred in the previous steps, the status condition of type `Initialized` will be set to `False` with the appropriate reason and message.
 8. The Kubewarden controller propagates the status condition to the `Policy` CRD by adding a new condition with the generation of the `PolicyRevision`.
-9. Thereplica reconciler of all the replicas including the leader loads the policy in the evaluation environment.
+9. The replica reconciler of all the replicas including the leader loads the policy in the evaluation environment.
 10. Every replica will report the status of the policy to the `PolicyRevision` CRD, setting the status condition of type `Ready` to `True`.
     - If an error occurs, the status condition of type `Ready` will be set to `False` with the appropriate reason and message.
 11. The `Ready` status is propagated to the `Policy` CRD by adding a new condition with the generation of the `PolicyRevision`.
-12. When all the replicas have set the `Ready` status to true, the Kubewarden controller creates a Webhook configuration pointing to the `PolicyRevision` generation.
+12. When all the replicas have set the `Ready` status to true, the Kubewarden controller updates the Webhook configuration pointing to the `PolicyRevision` generation.
     - If an error occurred in the previous steps, the controller will not update the Webhook configuration.
 13. The controller garbage collects the old `PolicyRevisions` and precompiled modules, keeping only the last `n` revisions.
 14. The controller removes the conditions of the old `PolicyRevision` from the `Policy` CRD.
@@ -842,6 +842,52 @@ Why should we **not** do this?
 - What other designs/options have been considered?
 - What is the impact of not doing this?
 --->
+
+## Use distinct `PolicyRevision` CRDs for each policy type
+
+The previous proposal combines all high-level policy CRDs into a single PolicyRevision type.
+An alternative approach is to introduce dedicated `-Revision` CRDs for each policy type:
+
+- `ClusterAdmissionPolicy` -> `ClusterAdmissionPolicyRevision`
+- `AdmissionPolicy` -> `AdmissionPolicyRevision`
+- `ClusterAdmissionPolicyGroup` -> `ClusterAdmissionPolicyRevisionGroup`
+- `AdmissionPolicyGroup` -> `AdmissionPolicyRevisionGroup`
+
+Pros:
+
+- The direct mapping between policies and their revisions simplifies operations with tools like kubectl.
+- Namespaced -Revision objects would be accessible to non-admin users.
+
+Cons:
+
+- The number of CRDs would double.
+- These CRDs would essentially be identical, each containing the previous policy state within a `RawExtension` attribute.
+  An alternative approach would be to store the full policy spec instead, following a model similar to `Deployment` → `ReplicaSet` → `Pod`.
+- Non-admin users would have access to the revision objects (see next section).
+- Both admin and non-admin users might attempt to interact with the revision resources,
+  which are meant as internal implementation details of Kubewarden, potentially leading to unintended issues.
+
+## Use distinct `PolicyRevision` CRDs for cluster-wide and namespaced policies
+
+The current proposal defines a single, namespaced revision CRD, mapping cluster-wide policies to a namespaced revision.
+An alternative would be to introduce a `ClusterPolicyRevision` CRD specifically for cluster-wide policy revisions.
+This approach offers limited benefits, but one advantage is that Kubernetes garbage collection (GC) could be leveraged:
+
+- A `ClusterPolicyRevision` would be owned by its corresponding cluster-wide policy (`ClusterAdmissionPolicy` or `ClusterAdmissionPolicyGroup`).
+- When a policy is deleted, its associated `ClusterPolicyRevision` resources would be automatically cleaned up by Kubernetes, reducing the burden on the Kubewarden controller.
+
+## Place `PolicyRevision` to the namespace where the `Policy` is defined
+
+Building on the previous alternative, `PolicyRevision` resources could be created within the same namespace as their corresponding policies, rather than being placed in the Kubewarden controller’s namespace as originally proposed.
+Advantages:
+
+- This approach leverages Kubernetes' GC, making policy cleanup more efficient upon removal.
+
+- When combined with the previous alternative, it also simplifies the rollback process, as the user service account would have the required permissions to access `PolicyRevision` resources.
+
+Disadvantages:
+
+- Regular users would have access to these revision resources, increasing the risk of unintended modifications and potential issues.
 
 # Unresolved questions
 
