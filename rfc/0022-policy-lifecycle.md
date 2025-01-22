@@ -832,6 +832,17 @@ This prevents the new replicas from being included in the service endpoints, ens
 When a replica is removed, the controller will update the status of the policies and policy revisions to reflect the removal.
 This may trigger a webhook reconciliation loop if the terminated replica was the only one reporting errors for a specific policy.
 
+## Audit Scanner
+
+The audit scanner will need to be updated to support the new policy lifecycle.  
+It must be aware of the policy’s generation to send HTTP requests to the correct endpoint.  
+To achieve this, the audit scanner will fetch the webhook configuration and extract the endpoint.
+If the policy is updated while the audit scanner is fetching the `WebhookConfiguration`, the Kubewarden controller may update the endpoint concurrently.
+As a result, the audit scanner could still retrieve the old endpoint and send the request to a stale policy generation, leading to a 404 response.
+In this case, the audit scanner must retry the request.
+We will implement a retry mechanism to handle this scenario effectively; for instance, the audit scanner could retry the request using an exponential backoff strategy with a defined retry limit.
+If the endpoint remains unavailable after the maximum retries, the audit scanner will mark the policy as failed and proceed to the next one.
+
 # Drawbacks
 
 [drawbacks]: #drawbacks
