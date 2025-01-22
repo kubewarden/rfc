@@ -832,6 +832,14 @@ This prevents the new replicas from being included in the service endpoints, ens
 When a replica is removed, the controller will update the status of the policies and policy revisions to reflect the removal.
 This may trigger a webhook reconciliation loop if the terminated replica was the only one reporting errors for a specific policy.
 
+## Standalone Policy Server
+
+With the introduction of [raw policies](https://docs.kubewarden.io/howtos/raw-policies) feature, the Policy Server can be deployed as a standalone component.
+Consequently, we need to maintain support for the `policies.yaml` configuration file.
+We will introduce a new CLI flag to enable the standalone mode, allowing the Policy Server to run independently without requiring a Kubewarden controller.
+When the standalone mode is enabled, the Policy Server will not initiate leader election or the reconciliation loop.
+This approach ensures compatibility with existing deployments and configurations while avoiding any breaking changes.
+
 ## Audit Scanner
 
 The audit scanner will need to be updated to support the new policy lifecycle.  
