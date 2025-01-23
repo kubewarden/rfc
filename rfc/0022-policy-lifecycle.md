@@ -1,10 +1,10 @@
-|              |                                 |
-| :----------- | :------------------------------ |
-| Feature Name | [Name]                          |
-| Start Date   | [Today]                         |
-| Category     | [Category]                      |
-| RFC PR       | [fill this in after opening PR] |
-| State        | **ACCEPTED**                    |
+|              |                                                  |
+| :----------- | :----------------------------------------------- |
+| Feature Name | Policy lifecycle                                 |
+| Start Date   | 19/12/2024                                       |
+| Category     | enhancement, feature                             |
+| RFC PR       | [#44](https://github.com/kubewarden/rfc/pull/44) |
+| State        | **ACCEPTED**                                     |
 
 # Summary
 
@@ -922,4 +922,3 @@ Disadvantages:
 # Unresolved questions
 
 [unresolved]: #unresolved-questions
-
