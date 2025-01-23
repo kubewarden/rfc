@@ -168,7 +168,7 @@ A leader election mechanism will be implemented to ensure that only one Policy S
 The leader will be responsible to pull the policies from the registry, validate the policy settings, precompile the policy and store it in a shared cache. See [Shared Policy Cache](#shared-policy-cache) for more details.
 We will rely on [Kubernetes Leases](https://kubernetes.io/docs/concepts/architecture/leases/) for this functionality, using the same mechanism employed by controllers scaffolded with Kubebuilder to elect a leader.
 Since the Policy Server is implemented in Rust, we will use the [kubert](https://docs.rs/kubert/0.22.0/kubert/lease/index.html) crate's lease module for this purpose.
-These features are not provided by the `kube-rs` crate, but kubert is built on top of `kube-rs`, is actively maintained, and is used in production by Linkerd.
+These features are not provided by the `kube-rs` crate, but kubert is built on top of `kube-rs`, is actively maintained, and is used in production by [Linkerd](https://linkerd.io/).
 
 After the policy is precompiled, the leader will change the status condition of type `Initialized` of the `PolicyRevision` to `True`.
 This will trigger the replica reconciler to load the policy in the evaluation environment of all the policy server pods that are part of the StatefulSet.
@@ -326,7 +326,7 @@ Given the concepts described above, the policy lifecycle will be as follows:
 1. The user creates a new `Policy`.
 2. The Kubewarden controller sets the phase of the `Policy` to `Pending`.
 3. The Kubewarden controller creates a new `PolicyRevision` resource with the policy content and sets the `enabled` field to `true`.
-   It also sets the `policyGeneration` field to the value of `metadata.generation` from the `Policy` CRD and adds the `Scheduled` status condition set to `False` to both the `Policy` and `PolicyRevision` CRDs.
+   It also sets the `policyGeneration` field to the value of `metadata.generation` from the `Policy` CRD. It adds the `Scheduled` status condition set to `False` to both the `Policy` and `PolicyRevision` CRDs.
 4. The new `PolicyRevision` triggers the leader reconciler. The Policy Server leader sets the status condition of type `Scheduled` of the `PolicyRevision` to `True`.
    - If Policy Server specified in the `Policy` CRD is not running, the status condition of type `Scheduled` will be set to `False` with the appropriate reason and message.
 5. The Kubewarden controller propagates the status condition to the `Policy` CRD.
@@ -923,23 +923,3 @@ Disadvantages:
 
 [unresolved]: #unresolved-questions
 
-<!---
-- What are the unknowns?
-- What can happen if Murphy's law holds true?
---->
-
-```
-
-```
-
-```
-
-```
-
-```
-
-```
-
-```
-
-```
