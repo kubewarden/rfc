@@ -56,6 +56,17 @@ This feature involves creating a dedicated controller reconciler
 that sends telemetry data to a remote server. It requires changes in some
 Kubewarden components, as described below.
 
+## Desired metrics
+
+The changes described in this document aim to allow the Kubewarden team to
+gather the following metrics:
+
+- Number of active PolicyServers
+- Number of active policies
+- Average number of policies per PolicyServer
+- Number of Kubewarden installations by version
+- Number of Kubewarden installations by Kubernetes version
+
 ## Controller Changes
 
 To send information about the environment, the controller would be responsible
