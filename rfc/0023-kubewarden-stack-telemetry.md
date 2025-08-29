@@ -80,7 +80,7 @@ The main changes to the Kubewarden controller would be:
   information.
 - A periodic job within the controller to collect and send the information.
 
-## Controller Configuration
+### Controller Configuration
 
 The controller should have two new CLI flags to enable telemetry collection and
 delivery: `--stack-telemetry-endpoint` and `--stack-telemetry-period`. The first
@@ -94,7 +94,7 @@ manager --leader-elect ... --stack-telemetry-endpoint="https://metrics.kubewarde
 When the `--stack-telemetry-endpoint` flag is not defined, no telemetry will be
 sent. The feature will be disabled by default.
 
-## Controller Information Collection and Delivery
+### Controller Information Collection and Delivery
 
 When the telemetry endpoint is configured, a new periodic job should be created
 in the controller to collect and send the data. This job can be implemented
@@ -103,10 +103,8 @@ into the manager alongside the existing reconcilers.
 
 This new periodic reconciler will start a time.Ticker that will periodically:
 
-- Collect information about how many PolicyServers are deployed, including
-  their versions.
-- Collect information about how many policies are deployed, including the
-  policy modules used.
+- Collect information about how many PolicyServers are deployed
+- Collect information about how many policies are deployed
 - Collect the Kubewarden version in use (this can be a constant updated on
   every release).
 - Collect the Kubernetes version.
@@ -115,59 +113,89 @@ This new periodic reconciler will start a time.Ticker that will periodically:
 
 ## Telemetry Server
 
-The telemetry server is a custom application that receives information from
-controllers and store it into a database for further analysis. This server
-will expose an endpoint to receive a JSON payload with the following structure:
+The telemetry server will be an instance of the [Longhorn
+upgrade-responder](https://github.com/longhorn/upgrade-responder).
+This server will receive information from controllers and store it in an
+InfluxDB database for further analysis.
 
-```
+The server exposes an endpoint to receive a JSON payload with the following
+structure:
+
+```json
 {
-  "instanceUid": "unique-id-for-the-cluster",
-  "kubewardenVersion": "v1.28.0",
-  "kubernetesVersion": "v1.33.0",
-  "policyServers": [
-    {
-      "uid": "policy-server-uid",
-      "imageDigest": "sha256:6c7d6433524e1dd7def937e123ee8f8f8da993fdc2297efaa6640b44f3285eee",
-      "policies": [
-        { "moduleDigest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" },
-        { "moduleDigest": "sha256:eef38c001a43600b2fb7e7d0609c8f26fbd93d8142476406988d0374d36d0bfc" }
-      ]
-    }
-  ]
+  "appVersion": "v1.28.0",
+  "extraTagInfo": {
+    "kubernetesVersion": "v1.33.0",
+    "instanceUid": "<unique-id-for-controller>"
+  },
+  "extraFieldInfo": {
+    "policyServerCount": 2,
+    "policiesCount": 3
+  }
 }
-
 ```
 
-In this payload, container images and policy modules are identified by their
-manifest digest to avoid exposing metadata about internal environments (like
-private registries) and to prevent confusion from different tags pointing to
-the same OCI artifact. However, this implies that the telemetry reconciler must
-fetch this information from the OCI registry at runtime.
+When the `upgrade-responder` receives a request, it will:
 
-When the telemetry server receives the request, it will:
+1. Validate the payload using a predefined JSON schema.
+2. [Infer](https://github.com/longhorn/upgrade-responder/blob/a6f6c7736b7e420b07ae7d813765dac778ebc638/upgraderesponder/service.go#L509)
+   the origin's geo-location from the request's source IP address.
+3. Store the enriched data in an InfluxDB database.
 
-1. Validate the payload.
-2. Infer the origin location from the source IP address.
-3. Look up policy and PolicyServer versions from the OCI artifact digest.
-4. Store the enriched data in a time-series database.
+The `upgrade-responder` will write the request data into an InfluxDB metric. The
+`extraTagInfo` values will be added as
+[tags](https://github.com/longhorn/upgrade-responder/blob/a6f6c7736b7e420b07ae7d813765dac778ebc638/upgraderesponder/service.go#L538),
+while the `extraFieldInfo` values will be added as
+[fields](https://github.com/longhorn/upgrade-responder/blob/a6f6c7736b7e420b07ae7d813765dac778ebc638/upgraderesponder/service.go#L558).
 
-The telemetry server should store data to the Prometheus time series database
-to be used later as a source for a Grafana dashboard. The metric should something like
-the following:
+For example, the JSON payload above would result in a data point with the
+following tags:
 
-```
-deployed-policies{	"policy_server_id"="uid",
-	"policy_server_image"="sha256:6c7d6433524e1dd7def937e123ee8f8f8da993fdc2297efaa6640b44f3285eee",
-	"module"="sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-	"kubewarden_version"="v1.28.0",
-	"instance-uid"="uid"
-	"country"="<some country>",
-	"city"="<some city>"
-```
+- `appVersion`: The Kubewarden version (e.g., v1.28.0).
+- `kubernetesVersion`: The Kubernetes version where the controller is running
+  (e.g., v1.33.0).
+- `instanceUid`: A UID to uniquely identify the controller instance.
+- `city`: City name extracted from the request's source IP.
+- `country`: Country name extracted from the request's source IP.
+- `country_isocode`: Country ISO code extracted from the request's source IP.
+
+The same data point will have the following fields:
+
+- `policyServerCount`: The number of PolicyServers deployed in the cluster.
+- `policiesCount`: The number of policies deployed in the cluster.
+- `value`: A field always set to `1`,
+  [added](https://github.com/longhorn/upgrade-responder/blob/a6f6c7736b7e420b07ae7d813765dac778ebc638/upgraderesponder/service.go#L560)
+  automatically by `upgrade-responder`.
+
+### Understanding Tags and Fields
+
+There are differences from InfluxDB `tags` and `fields` which may be relevant
+to document here as well. Tags are indexed metadata which can be used to group
+and filter data points. While `fields` are the actual metric data.
+
+| Aspect          | Tags                                                                                | Fields                                                                |
+| :-------------- | :---------------------------------------------------------------------------------- | :-------------------------------------------------------------------- |
+| **Purpose**     | Serve as indexed metadata used for filtering and grouping (e.g., `host`, `region`). | Hold the actual measured values (e.g., `temperature`, `cpu_usage`).   |
+| **Indexing**    | Stored in an inverted index; queries on tags are very fast.                         | Not indexed; queries must scan data, which can be slower.             |
+| **Cardinality** | High cardinality (many unique values) can degrade database performance.             | Low impact on performance; many distinct field values are acceptable. |
+| **Data Types**  | Limited to strings.                                                                 | Support numeric types, booleans, and strings.                         |
+
+### Grafana Dashboard
+
+Alongside the `upgrade-responder` and InfluxDB, a Grafana instance with a custom
+dashboard will be configured. The dashboard will use InfluxDB as its data
+source and provide queries to visualize the desired metrics.
+
+### Telemetry Server Infrastructure
+
+The `upgrade-responder`, InfluxDB, and Grafana instances used for Kubewarden
+telemetry will be maintained by the SUSE team. All members of the Kubewarden
+organization on GitHub will have access to the collected data.
 
 ## Helm Chart Changes
 
-The Kubewarden Helm charts would require new values to configure the controller's CLI flags.
+The Kubewarden Helm charts would require new values to configure the
+controller's CLI flags.
 
 ```yaml
 stackTelemetry:
@@ -181,20 +209,18 @@ controller via the corresponding CLI flags.
 
 # Drawbacks
 
-- Requires building and maintaining a custom client, a custom server, and a
-  custom data pipeline.
-- When new metadata is required, it necessitates code changes and a new release
-  for both the controller and the telemetry server. The JSON schema versions must
-  be kept in sync.
+- When new metadata or more metric data is required, it necessitates code
+  changes and a new release for both the controller and, maybe, the telemetry
+  server. The JSON schema versions must be kept in sync.
 - We are solely responsible for ensuring secure communication (TLS,
   authentication, etc.) with the remote telemetry server.
 
 # Alternatives
 
-If we proceed with the OpenTelemetry integration, we should investigate if the
-existing metrics can be updated to achieve the same goal. It might be possible
-to reuse current metrics and simply add a new Otel collector pipeline to send
-them to the remote collector, minimizing controller changes.
+The following subsection is a option given during the write of this RFC. But it
+was not select by the majority of the team. The team decided to move with the
+`upgrade-responder` option because the people that which will maintain the
+infrastructure more familiarized with the tool.
 
 ## Not selected option: OpenTelemetry Integration
 
@@ -324,3 +350,5 @@ to add location information to the received metrics.
 [opentelemetry-collector-contrib/processor at main · open-telemetry/opentelemetry-collector-contrib · GitHub](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor)
 
 [opentelemetry-collector/processor at main · open-telemetry/opentelemetry-collector · GitHub](https://github.com/open-telemetry/opentelemetry-collector/tree/main/processor)
+
+https://github.com/longhorn/upgrade-responder
