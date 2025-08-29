@@ -48,15 +48,144 @@ data does not consume excessive resources in my environment.
 
 # Detailed design
 
-This section describes two options to achieve this goal. Therefore, this
-section is split into two subsections: the first option using OpenTelemetry,
-and the second creating a dedicated controller reconciler.
-
 > [!WARNING]
 > As a CNCF project, it is necessary to get approval from the CNCF to implement either of the following options.
 > [Telemetry Data Collection and Usage Policy | Linux Foundation](https://www.linuxfoundation.org/legal/telemetry-data-policy)
 
-## Option 1: OpenTelemetry Integration
+This feature involves creating a dedicated controller reconciler
+that sends telemetry data to a remote server. It requires changes in some
+Kubewarden components, as described below.
+
+## Controller Changes
+
+To send information about the environment, the controller would be responsible
+for collecting and transmitting the data to a remote, central place. The
+controller already has access to all Kubewarden resources and can be granted
+permissions to access other relevant information.
+
+The main changes to the Kubewarden controller would be:
+
+- A configuration option to specify the endpoint that will receive the
+  information.
+- A periodic job within the controller to collect and send the information.
+
+## Controller Configuration
+
+The controller should have two new CLI flags to enable telemetry collection and
+delivery: `--stack-telemetry-endpoint` and `--stack-telemetry-period`. The first
+contains the full URL of the remote server. The latter defines the interval at
+which the controller sends data, defaulting to `1h`. For example:
+
+```
+manager --leader-elect ... --stack-telemetry-endpoint="https://metrics.kubewarden.io/" --stack-telemetry-period=6h ...
+```
+
+When the `--stack-telemetry-endpoint` flag is not defined, no telemetry will be
+sent. The feature will be disabled by default.
+
+## Controller Information Collection and Delivery
+
+When the telemetry endpoint is configured, a new periodic job should be created
+in the controller to collect and send the data. This job can be implemented
+using the Runnable interface from the controller-runtime package and integrated
+into the manager alongside the existing reconcilers.
+
+This new periodic reconciler will start a time.Ticker that will periodically:
+
+- Collect information about how many PolicyServers are deployed, including
+  their versions.
+- Collect information about how many policies are deployed, including the
+  policy modules used.
+- Collect the Kubewarden version in use (this can be a constant updated on
+  every release).
+- Collect the Kubernetes version.
+- Build a JSON payload with the collected data and send it to the remote server
+  using secure communication.
+
+## Telemetry Server
+
+The telemetry server is a custom application that receives information from
+controllers and store it into a database for further analysis. This server
+will expose an endpoint to receive a JSON payload with the following structure:
+
+```
+{
+  "instanceUid": "unique-id-for-the-cluster",
+  "kubewardenVersion": "v1.28.0",
+  "kubernetesVersion": "v1.33.0",
+  "policyServers": [
+    {
+      "uid": "policy-server-uid",
+      "imageDigest": "sha256:6c7d6433524e1dd7def937e123ee8f8f8da993fdc2297efaa6640b44f3285eee",
+      "policies": [
+        { "moduleDigest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" },
+        { "moduleDigest": "sha256:eef38c001a43600b2fb7e7d0609c8f26fbd93d8142476406988d0374d36d0bfc" }
+      ]
+    }
+  ]
+}
+
+```
+
+In this payload, container images and policy modules are identified by their
+manifest digest to avoid exposing metadata about internal environments (like
+private registries) and to prevent confusion from different tags pointing to
+the same OCI artifact. However, this implies that the telemetry reconciler must
+fetch this information from the OCI registry at runtime.
+
+When the telemetry server receives the request, it will:
+
+1. Validate the payload.
+2. Infer the origin location from the source IP address.
+3. Look up policy and PolicyServer versions from the OCI artifact digest.
+4. Store the enriched data in a time-series database.
+
+The telemetry server should store data to the Prometheus time series database
+to be used later as a source for a Grafana dashboard. The metric should something like
+the following:
+
+```
+deployed-policies{	"policy_server_id"="uid",
+	"policy_server_image"="sha256:6c7d6433524e1dd7def937e123ee8f8f8da993fdc2297efaa6640b44f3285eee",
+	"module"="sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+	"kubewarden_version"="v1.28.0",
+	"instance-uid"="uid"
+	"country"="<some country>",
+	"city"="<some city>"
+```
+
+## Helm Chart Changes
+
+The Kubewarden Helm charts would require new values to configure the controller's CLI flags.
+
+```yaml
+stackTelemetry:
+  enabled: true
+  endpoint: "https://metrics.kubewarden.io"
+  period: "1h"
+```
+
+When `stackTelemetry.enabled` is `true`, the feature is enabled in the
+controller via the corresponding CLI flags.
+
+# Drawbacks
+
+- Requires building and maintaining a custom client, a custom server, and a
+  custom data pipeline.
+- When new metadata is required, it necessitates code changes and a new release
+  for both the controller and the telemetry server. The JSON schema versions must
+  be kept in sync.
+- We are solely responsible for ensuring secure communication (TLS,
+  authentication, etc.) with the remote telemetry server.
+
+# Alternatives
+
+If we proceed with the OpenTelemetry integration, we should investigate if the
+existing metrics can be updated to achieve the same goal. It might be possible
+to reuse current metrics and simply add a new Otel collector pipeline to send
+them to the remote collector, minimizing controller changes.
+
+## Not selected option: OpenTelemetry Integration
 
 This implementation option aims for a less intrusive approach, decoupling the
 controller from the telemetry backend. With this design, all telemetry will be
@@ -168,158 +297,6 @@ The remote OpenTelemetry collector's configuration is abstracted from the user.
 For instance, it could use the [GeoIP
 Processor](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/geoipprocessor)
 to add location information to the received metrics.
-
-## Option 2: Controller Reconciler
-
-This implementation option involves creating a dedicated controller reconciler
-that sends telemetry data to a remote server. It requires changes in some
-Kubewarden components, as described below.
-
-### Controller Changes
-
-To send information about the environment, the controller would be responsible
-for collecting and transmitting the data to a remote, central place. The
-controller already has access to all Kubewarden resources and can be granted
-permissions to access other relevant information.
-
-The main changes to the Kubewarden controller would be:
-
-- A configuration option to specify the endpoint that will receive the
-  information.
-- A periodic job within the controller to collect and send the information.
-
-### Controller Configuration
-
-The controller should have two new CLI flags to enable telemetry collection and
-delivery: `--stack-telemetry-endpoint` and `--stack-telemetry-period`. The first
-contains the full URL of the remote server. The latter defines the interval at
-which the controller sends data, defaulting to `1h`. For example:
-
-```
-manager --leader-elect ... --stack-telemetry-endpoint="https://metrics.kubewarden.io/" --stack-telemetry-period=6h ...
-```
-
-When the `--stack-telemetry-endpoint` flag is not defined, no telemetry will be
-sent. The feature will be disabled by default.
-
-### Controller Information Collection and Delivery
-
-When the telemetry endpoint is configured, a new periodic job should be created
-in the controller to collect and send the data. This job can be implemented
-using the Runnable interface from the controller-runtime package and integrated
-into the manager alongside the existing reconcilers.
-
-This new periodic reconciler will start a time.Ticker that will periodically:
-
-- Collect information about how many PolicyServers are deployed, including
-  their versions.
-- Collect information about how many policies are deployed, including the
-  policy modules used.
-- Collect the Kubewarden version in use (this can be a constant updated on
-  every release).
-- Collect the Kubernetes version.
-- Build a JSON payload with the collected data and send it to the remote server
-  using secure communication.
-
-## Telemetry Server
-
-The telemetry server is a custom application that receives information from
-controllers and store it into a database for further analysis. This server
-will expose an endpoint to receive a JSON payload with the following structure:
-
-```
-{
-  "instanceUid": "unique-id-for-the-cluster",
-  "kubewardenVersion": "v1.28.0",
-  "kubernetesVersion": "v1.33.0",
-  "policyServers": [
-    {
-      "uid": "policy-server-uid",
-      "imageDigest": "sha256:6c7d6433524e1dd7def937e123ee8f8f8da993fdc2297efaa6640b44f3285eee",
-      "policies": [
-        { "moduleDigest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" },
-        { "moduleDigest": "sha256:eef38c001a43600b2fb7e7d0609c8f26fbd93d8142476406988d0374d36d0bfc" }
-      ]
-    }
-  ]
-}
-
-```
-
-In this payload, container images and policy modules are identified by their
-manifest digest to avoid exposing metadata about internal environments (like
-private registries) and to prevent confusion from different tags pointing to
-the same OCI artifact. However, this implies that the telemetry reconciler must
-fetch this information from the OCI registry at runtime.
-
-When the telemetry server receives the request, it will:
-
-1. Validate the payload.
-2. Infer the origin location from the source IP address.
-3. Look up policy and PolicyServer versions from the OCI artifact digest.
-4. Store the enriched data in a time-series database.
-
-The telemetry server should store data to the Prometheus time series database
-to be used later as a source for a Grafana dashboard. The metric should something like
-the following:
-
-```
-deployed-policies{	"policy_server_id"="uid",
-	"policy_server_image"="sha256:6c7d6433524e1dd7def937e123ee8f8f8da993fdc2297efaa6640b44f3285eee",
-	"module"="sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-	"kubewarden_version"="v1.28.0",
-	"instance-uid"="uid"
-	"country"="<some country>",
-	"city"="<some city>"
-```
-
-## Helm Chart Changes
-
-The Kubewarden Helm charts would require new values to configure the controller's CLI flags.
-
-```yaml
-stackTelemetry:
-  enabled: true
-  endpoint: "https://metrics.kubewarden.io"
-  period: "1h"
-```
-
-When `stackTelemetry.enabled` is `true`, the feature is enabled in the
-controller via the corresponding CLI flags.
-
-# Drawbacks
-
-This section is also split into two subsections, one for each implementation
-option.
-
-## OpenTelemetry Integration
-
-- Potential for breaking changes in the OpenTelemetry specification or
-  collector components.
-- If a user already has a custom OpenTelemetry collector, integrating our
-  telemetry pipeline might be complex or they might filter our data out.
-- May still require additional requests to a container registry to fetch OCI
-  artifact digests if they aren't readily available.
-
-## Controller Reconciler
-
-- Requires building and maintaining a custom client, a custom server, and a
-  custom data pipeline.
-- When new metadata is required, it necessitates code changes and a new release
-  for both the controller and the telemetry server. The JSON schema versions must
-  be kept in sync.
-- We are solely responsible for ensuring secure communication (TLS,
-  authentication, etc.) with the remote telemetry server.
-
-# Alternatives
-
-If we proceed with the OpenTelemetry integration, we should investigate if the
-existing metrics can be updated to achieve the same goal. It might be possible
-to reuse current metrics and simply add a new Otel collector pipeline to send
-them to the remote collector, minimizing controller changes.
-
-This document describes two primary alternatives. After a final decision, the
-non-selected option can be detailed here.
 
 # Unresolved Questions
 
