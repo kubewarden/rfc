@@ -1,10 +1,10 @@
-|              |                                  |
-| :----------- | :------------------------------- |
-| Feature Name | Kubewarden environment telemetry |
-| Start Date   | 2025-08-28                       |
-| Category     | telemetry                        |
-| RFC PR       | [fill this in after opening PR]  |
-| State        | **TO-BE-DEFINED**                |
+|              |                                           |
+| :----------- | :---------------------------------------- |
+| Feature Name | Kubewarden environment telemetry          |
+| Start Date   | 2025-08-28                                |
+| Category     | telemetry                                 |
+| RFC PR       | https://github.com/kubewarden/rfc/pull/51 |
+| State        | **TO-BE-DEFINED**                         |
 
 # Summary
 
@@ -45,6 +45,9 @@ introduce a significant security vulnerability into my environment.
 
 As a Kubewarden user, I want to ensure that the process of sending telemetry
 data does not consume excessive resources in my environment.
+
+As a Kubewarden user, I want an easy way to disable the reconciler which send
+environment telemetry data to a remote central location.
 
 # Detailed design
 
