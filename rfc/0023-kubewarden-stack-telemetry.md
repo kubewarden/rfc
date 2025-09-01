@@ -14,6 +14,9 @@ about user applications, but rather to learn more about the typical
 environments where Kubewarden is deployed. This data will help guide the
 project's future development.
 
+Kubearden stack telemetry will be enabled by default, but users will have an
+easy way to disable it
+
 # Motivation
 
 The Kubewarden team currently has limited visibility into the environments
@@ -113,6 +116,13 @@ This new periodic reconciler will start a time.Ticker that will periodically:
 - Collect the Kubernetes version.
 - Build a JSON payload with the collected data and send it to the remote server
   using secure communication.
+- The controller logs the available updates for the Kubewarden version running returned by
+  the `upgrade-responder` server
+
+The execution of this new reconciler should never interrupt the functionality
+of the remaining reconcilers. This means that if the controller is
+misconfigured with invalid endpoint, the reconciler should log an error and
+continue.
 
 ## Telemetry Server
 
@@ -144,6 +154,8 @@ When the `upgrade-responder` receives a request, it will:
 2. [Infer](https://github.com/longhorn/upgrade-responder/blob/a6f6c7736b7e420b07ae7d813765dac778ebc638/upgraderesponder/service.go#L509)
    the origin's geo-location from the request's source IP address.
 3. Store the enriched data in an InfluxDB database.
+4. Respond the request with the available updates to the given Kubewarden version
+   defined in the `appVersion` field.
 
 The `upgrade-responder` will write the request data into an InfluxDB metric. The
 `extraTagInfo` values will be added as
@@ -209,6 +221,10 @@ stackTelemetry:
 
 When `stackTelemetry.enabled` is `true`, the feature is enabled in the
 controller via the corresponding CLI flags.
+
+The `stackTelemetry.enabled` setting will be `true` by default. Users will be
+notified during the Kubewarden stack upgrade that this telemetry is included,
+and instructions to disable it will be provided
 
 # Drawbacks
 
