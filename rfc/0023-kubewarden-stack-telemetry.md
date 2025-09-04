@@ -14,8 +14,8 @@ about user applications, but rather to learn more about the typical
 environments where Kubewarden is deployed. This data will help guide the
 project's future development.
 
-Kubearden stack telemetry will be enabled by default, but users will have an
-easy way to disable it
+Kubewarden stack telemetry will be enabled by default, but users will have an
+easy way to disable it.
 
 # Motivation
 
@@ -24,7 +24,7 @@ where users deploy the project. This information is invaluable for making
 data-driven decisions about the project's future. For this reason, we would
 like to add a feature to the Kubewarden stack that allows sending
 non-sensitive, anonymous environment information to a central service for
-aggregation and analysis
+aggregation and analysis.
 
 ## Examples / User Stories
 
