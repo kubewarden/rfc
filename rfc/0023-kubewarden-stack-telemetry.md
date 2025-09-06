@@ -162,11 +162,11 @@ structure:
   "appVersion": "v1.28.0",
   "extraTagInfo": {
     "kubernetesVersion": "v1.33.0",
-    "instanceUid": "<unique-id-for-controller>"
   },
   "extraFieldInfo": {
     "policyServerCount": 2,
     "policiesCount": 3
+    "namespaceUid": "<namespace-uid-where-kubewarden-is-installed>"
   }
 }
 ```
@@ -192,7 +192,6 @@ following tags:
 - `appVersion`: The Kubewarden version (e.g., v1.28.0).
 - `kubernetesVersion`: The Kubernetes version where the controller is running
   (e.g., v1.33.0).
-- `instanceUid`: A UID to uniquely identify the controller instance.
 - `city`: City name extracted from the request's source IP.
 - `country`: Country name extracted from the request's source IP.
 - `country_isocode`: Country ISO code extracted from the request's source IP.
@@ -201,11 +200,43 @@ The same data point will have the following fields:
 
 - `policyServerCount`: The number of PolicyServers deployed in the cluster.
 - `policiesCount`: The number of policies deployed in the cluster.
+- `namespaceUid`: A UID to uniquely identify the Kubewarden stack installation.
+  This should be UID of the namespace where Kubewarden is installed.
 - `value`: A field always set to `1`,
   [added](https://github.com/longhorn/upgrade-responder/blob/a6f6c7736b7e420b07ae7d813765dac778ebc638/upgraderesponder/service.go#L560)
   automatically by `upgrade-responder`. This default value ensures that the
   data point has a value for metric calculations, even if the request contains no
   other fields.
+
+  ### Request validation schema
+
+  upgrade-responder should be configured with a JSON schema used to validate the
+  request payload. This is a proposed validation schema to be used:
+
+  ```json
+  {
+    "appVersionSchema": {
+      "dataType": "string",
+      "maxLen": 200
+    },
+    "extraTagInfoSchema": {
+      "kubernetesVersion": {
+        "dataType": "string",
+        "maxLen": 200
+    },
+    "extraFieldInfoSchema": {
+      "policyServerCount": {
+        "dataType": "float"
+      },
+      "policiesCount": {
+        "dataType": "float"
+      },
+      "namespaceUid": {
+        "dataType": "string",
+        "maxLen": 200
+    }
+  }
+  ```
 
 ### Understanding Tags and Fields
 
