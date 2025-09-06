@@ -161,11 +161,11 @@ structure:
 {
   "appVersion": "v1.28.0",
   "extraTagInfo": {
-    "kubernetesVersion": "v1.33.0",
+    "kubernetesVersion": "v1.33.0"
   },
   "extraFieldInfo": {
     "policyServerCount": 2,
-    "policiesCount": 3
+    "policiesCount": 3,
     "namespaceUid": "<namespace-uid-where-kubewarden-is-installed>"
   }
 }
@@ -202,11 +202,14 @@ The same data point will have the following fields:
 - `policiesCount`: The number of policies deployed in the cluster.
 - `namespaceUid`: A UID to uniquely identify the Kubewarden stack installation.
   This should be UID of the namespace where Kubewarden is installed.
-- `value`: A field always set to `1`,
+- `value`: A
+  [field](https://github.com/longhorn/upgrade-responder/blob/a6f6c7736b7e420b07ae7d813765dac778ebc638/upgraderesponder/service.go#L49C36-L49C95)
+  always set to `1`,
   [added](https://github.com/longhorn/upgrade-responder/blob/a6f6c7736b7e420b07ae7d813765dac778ebc638/upgraderesponder/service.go#L560)
-  automatically by `upgrade-responder`. This default value ensures that the
-  data point has a value for metric calculations, even if the request contains no
-  other fields.
+  automatically by `upgrade-responder`. This default value ensures that the data
+  point has a value for metric calculations, even if the request contains no
+  other fields. In other words, it's a dummy InfluxDB field used to count the
+  number of data points
 
   ### Request validation schema
 
