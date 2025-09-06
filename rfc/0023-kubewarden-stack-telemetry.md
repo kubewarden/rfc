@@ -4,7 +4,7 @@
 | Start Date   | 2025-08-28                                |
 | Category     | telemetry                                 |
 | RFC PR       | https://github.com/kubewarden/rfc/pull/51 |
-| State        | **TO-BE-DEFINED**                         |
+| State        | **IN-REVIEW**                             |
 
 # Summary
 
@@ -49,8 +49,11 @@ introduce a significant security vulnerability into my environment.
 As a Kubewarden user, I want to ensure that the process of sending telemetry
 data does not consume excessive resources in my environment.
 
-As a Kubewarden user, I want an easy way to disable the reconciler which send
-environment telemetry data to a remote central location.
+As a Kubewarden user, I want an easy way to disable the Kubewarden environment
+telemetry data sending
+
+As a Kubewarden user, I want to receive warning in the logs about available
+upgrades
 
 # Detailed design
 
@@ -109,20 +112,40 @@ into the manager alongside the existing reconcilers.
 
 This new periodic reconciler will start a time.Ticker that will periodically:
 
-- Collect information about how many PolicyServers are deployed
-- Collect information about how many policies are deployed
+- Collect information about how many PolicyServers are deployed.
+- Collect information about how many policies are deployed.
 - Collect the Kubewarden version in use (this can be a constant updated on
   every release).
 - Collect the Kubernetes version.
 - Build a JSON payload with the collected data and send it to the remote server
   using secure communication.
 - The controller logs the available updates for the Kubewarden version running returned by
-  the `upgrade-responder` server
+  the [upgrade-responder](https://github.com/longhorn/upgrade-responder) server.
 
 The execution of this new reconciler should never interrupt the functionality
 of the remaining reconcilers. This means that if the controller is
 misconfigured with invalid endpoint, the reconciler should log an error and
 continue.
+
+## Helm Chart Changes
+
+The Kubewarden Helm charts would require new values to configure the
+controller's CLI flags.
+
+```yaml
+stackTelemetry:
+  enabled: true
+  endpoint: "https://metrics.kubewarden.io"
+  period: "1h"
+```
+
+When `stackTelemetry.enabled` is `true`, the feature is enabled in the
+controller via the corresponding CLI flags.
+
+The `stackTelemetry.enabled` setting will be `true` by default. Users will be
+notified during the Kubewarden stack install and upgrade via Helm NOTES.txt
+that this telemetry is included, and instructions to disable it will be
+provided
 
 ## Telemetry Server
 
@@ -180,7 +203,9 @@ The same data point will have the following fields:
 - `policiesCount`: The number of policies deployed in the cluster.
 - `value`: A field always set to `1`,
   [added](https://github.com/longhorn/upgrade-responder/blob/a6f6c7736b7e420b07ae7d813765dac778ebc638/upgraderesponder/service.go#L560)
-  automatically by `upgrade-responder`.
+  automatically by `upgrade-responder`. This default value ensures that the
+  data point has a value for metric calculations, even if the request contains no
+  other fields.
 
 ### Understanding Tags and Fields
 
@@ -207,39 +232,20 @@ The `upgrade-responder`, InfluxDB, and Grafana instances used for Kubewarden
 telemetry will be maintained by the SUSE team. All members of the Kubewarden
 organization on GitHub will have access to the collected data.
 
-## Helm Chart Changes
-
-The Kubewarden Helm charts would require new values to configure the
-controller's CLI flags.
-
-```yaml
-stackTelemetry:
-  enabled: true
-  endpoint: "https://metrics.kubewarden.io"
-  period: "1h"
-```
-
-When `stackTelemetry.enabled` is `true`, the feature is enabled in the
-controller via the corresponding CLI flags.
-
-The `stackTelemetry.enabled` setting will be `true` by default. Users will be
-notified during the Kubewarden stack upgrade that this telemetry is included,
-and instructions to disable it will be provided
-
 # Drawbacks
 
 - When new metadata or more metric data is required, it necessitates code
   changes and a new release for both the controller and, maybe, the telemetry
   server. The JSON schema versions must be kept in sync.
-- We are solely responsible for ensuring secure communication (TLS,
-  authentication, etc.) with the remote telemetry server.
 
 # Alternatives
 
 The following subsection is a option given during the write of this RFC. But it
 was not select by the majority of the team. The team decided to move with the
-`upgrade-responder` option because the people that which will maintain the
-infrastructure more familiarized with the tool.
+`upgrade-responder` option because this is a solution used by other CNCF
+projects (Longhorn) and we (SUSE Rancher - who is willing to pay for the
+infrastructure) also have experience managing and maintaining the server-side
+infrastructure
 
 ## Not selected option: OpenTelemetry Integration
 
