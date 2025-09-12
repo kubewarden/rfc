@@ -9,9 +9,9 @@
 # Summary
 
 This RFC describes how the Kubewarden stack will send telemetry data about the
-environment in which it is running. The goal is not to collect information
-about user applications, but rather to learn more about the typical
-environments where Kubewarden is deployed. This data will help guide the
+environment in which it is running. The goal isn't to collect information
+about user applications, but rather to learn more about typical Kubewarden deployment
+environments. This data will help guide the
 project's future development.
 
 Kubewarden stack telemetry will be enabled by default, but users will have an
@@ -58,7 +58,7 @@ upgrades
 # Detailed design
 
 > [!WARNING]
-> As a CNCF project, it is necessary to get approval from the CNCF to implement either of the following options.
+> As a CNCF project, it's necessary to get approval from the CNCF to implement either of the following options.
 > [Telemetry Data Collection and Usage Policy | Linux Foundation](https://www.linuxfoundation.org/legal/telemetry-data-policy)
 
 This feature involves creating a dedicated controller reconciler
@@ -70,11 +70,12 @@ Kubewarden components, as described below.
 The changes described in this document aim to allow the Kubewarden team to
 gather the following metrics:
 
-- Number of active PolicyServers
-- Number of active policies
-- Average number of policies per PolicyServer
-- Number of Kubewarden installations by version
-- Number of Kubewarden installations by Kubernetes version
+- Number of active PolicyServers.
+- Number of active policies.
+- Average number of policies per PolicyServer.
+- Number of Kubewarden installations by version.
+- Number of Kubewarden installations by Kubernetes version.
+- Official policies from the Kubewarden project in use.
 
 ## Controller Changes
 
@@ -85,14 +86,14 @@ permissions to access other relevant information.
 
 The main changes to the Kubewarden controller would be:
 
-- A configuration option to specify the endpoint that will receive the
+- A configuration option to specify the endpoint that receives the
   information.
 - A periodic job within the controller to collect and send the information.
 
 ### Controller Configuration
 
 The controller should have two new CLI flags to enable telemetry collection and
-delivery: `--stack-telemetry-endpoint` and `--stack-telemetry-period`. The first
+delivery: `--stack-telemetry-endpoint` and `--stack-telemetry-period`. The former
 contains the full URL of the remote server. The latter defines the interval at
 which the controller sends data, defaulting to `1h`. For example:
 
@@ -100,20 +101,21 @@ which the controller sends data, defaulting to `1h`. For example:
 manager --leader-elect ... --stack-telemetry-endpoint="https://metrics.kubewarden.io/" --stack-telemetry-period=6h ...
 ```
 
-When the `--stack-telemetry-endpoint` flag is not defined, no telemetry will be
+When the `--stack-telemetry-endpoint` flag isn't defined, no telemetry will be
 sent. The feature will be disabled by default.
 
 ### Controller Information Collection and Delivery
 
-When the telemetry endpoint is configured, a new periodic job should be created
+When configuring the telemetry endpoint, a new periodic job should be created
 in the controller to collect and send the data. This job can be implemented
 using the Runnable interface from the controller-runtime package and integrated
 into the manager alongside the existing reconcilers.
 
-This new periodic reconciler will start a time.Ticker that will periodically:
+This new periodic reconciler will start a `time.Ticker` that will periodically:
 
 - Collect information about how many PolicyServers are deployed.
 - Collect information about how many policies are deployed.
+- Collect all required relevant information desired to the metrics.
 - Collect the Kubewarden version in use (this can be a constant updated on
   every release).
 - Collect the Kubernetes version.
@@ -121,6 +123,10 @@ This new periodic reconciler will start a time.Ticker that will periodically:
   using secure communication.
 - The controller logs the available updates for the Kubewarden version running returned by
   the [upgrade-responder](https://github.com/longhorn/upgrade-responder) server.
+
+> [!NOTE]
+> The information collected by the reconciler may change over time
+> considering the needs for the desired metrics.
 
 The execution of this new reconciler should never interrupt the functionality
 of the remaining reconcilers. This means that if the controller is
@@ -151,7 +157,7 @@ provided
 
 The telemetry server will be an instance of the [Longhorn
 upgrade-responder](https://github.com/longhorn/upgrade-responder).
-This server will receive information from controllers and store it in an
+This server receives information from controllers and store it in an
 InfluxDB database for further analysis.
 
 The server exposes an endpoint to receive a JSON payload with the following
@@ -201,7 +207,7 @@ The same data point will have the following fields:
 - `policyServerCount`: The number of PolicyServers deployed in the cluster.
 - `policiesCount`: The number of policies deployed in the cluster.
 - `namespaceUid`: A UID to uniquely identify the Kubewarden stack installation.
-  This should be UID of the namespace where Kubewarden is installed.
+  This should be UID of the Kubewarden installation namespace.
 - `value`: A
   [field](https://github.com/longhorn/upgrade-responder/blob/a6f6c7736b7e420b07ae7d813765dac778ebc638/upgraderesponder/service.go#L49C36-L49C95)
   always set to `1`,
@@ -213,7 +219,7 @@ The same data point will have the following fields:
 
   ### Request validation schema
 
-  upgrade-responder should be configured with a JSON schema used to validate the
+  The `upgrade-responder` should be configured with a JSON schema used to validate the
   request payload. This is a proposed validation schema to be used:
 
   ```json
@@ -263,31 +269,32 @@ source and provide queries to visualize the desired metrics.
 ### Telemetry Server Infrastructure
 
 The `upgrade-responder`, InfluxDB, and Grafana instances used for Kubewarden
-telemetry will be maintained by the SUSE team. All members of the Kubewarden
-organization on GitHub will have access to the collected data.
+telemetry will be maintained by the SUSE team. All Kubewarden maintainers
+listed in the maintainers CNCF mail list will have access to the collected
+data.
 
 # Drawbacks
 
-- When new metadata or more metric data is required, it necessitates code
-  changes and a new release for both the controller and, maybe, the telemetry
-  server. The JSON schema versions must be kept in sync.
+- When requiring new metadata or more metric data, code
+  changes will be needed. Along with a new release for both the controller and, possibly, the telemetry
+  server. The JSON schema versions must be kept synchronized.
 
 # Alternatives
 
-The following subsection is a option given during the write of this RFC. But it
-was not select by the majority of the team. The team decided to move with the
+The following subsection is an option provided during the writing of this RFC. But, it
+was not selected by a majority of the team. The team decided to move forward with the
 `upgrade-responder` option because this is a solution used by other CNCF
-projects (Longhorn) and we (SUSE Rancher - who is willing to pay for the
-infrastructure) also have experience managing and maintaining the server-side
-infrastructure
+projects (Longhorn). Also, we (SUSE Rancher — who is willing to pay for the
+infrastructure) have experience managing and maintaining the server-side
+infrastructure.
 
 ## Not selected option: OpenTelemetry Integration
 
 This implementation option aims for a less intrusive approach, decoupling the
-controller from the telemetry backend. With this design, all telemetry will be
+controller from the telemetry back-end. With this design, all telemetry will be
 managed outside the Kubewarden controller's reconciliation loop. The controller
 will be instrumented with telemetry collection points that send data to an
-OpenTelemetry collector, which will then be configured to forward this data to
+OpenTelemetry collector, which will be configured to forward this data to
 a remote location.
 
 This option is inspired by previous observability work done in collaboration
@@ -322,13 +329,13 @@ commonAttrs := []attribute.KeyValue{
 policiesGauge.Record(context.Background(), 1, metric.WithAttributes(commonAttrs...)) // Corrected context.Background()
 ```
 
-Once the metric is recorded, it is up to the OpenTelemetry collector to
+Once the metric is recorded, it's up to the OpenTelemetry collector to
 manipulate the data and send it to a remote location, which can be another
 OpenTelemetry collector or a time-series database (e.g., Prometheus).
 
 ### OpenTelemetry Configuration
 
-In the OpenTelemetry collector configuration, a new pipeline should be added to
+In the OpenTelemetry collector configuration, a new pipeline will be added to
 redirect the new controller metric to a remote location for further analysis.
 This is an example of an initial configuration used to forward the metric to a
 remote OpenTelemetry collector.
@@ -370,17 +377,17 @@ service:
 ```
 
 This OpenTelemetry configuration can be used to control the telemetry export
-and can be expanded over time to include more metadata by leveraging the rich
+and, be expanded over time to include more metadata by leveraging the rich
 ecosystem of OpenTelemetry
-[processors](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor),
-potentially with no changes to the controller code. This makes telemetry
-customization more flexible. In the example above, processors are used to add
+[processors](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor).
+This would potentially need no changes to the controller code. This makes telemetry
+customization more flexible. In the example above, processors will be used to add
 labels, filter unrelated metrics, and batch metrics before sending.
 
 All OpenTelemetry collector configuration can be managed in the Helm chart
 installation/update. The remote endpoint would be provided in the Helm Chart
 values. If the `stackTelemetry.enabled` is disabled, the OpenTelemetry
-configuration will not be applied:
+configuration won't be applied:
 
 ```yaml
 stackTelemetry:
@@ -394,7 +401,7 @@ For instance, it could use the [GeoIP
 Processor](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/geoipprocessor)
 to add location information to the received metrics.
 
-# Unresolved Questions
+# Unresolved questions
 
 # Reference
 
