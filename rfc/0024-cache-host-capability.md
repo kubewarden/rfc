@@ -4,7 +4,7 @@
 | Start Date   | 2025-09-25                                |
 | Category     | host-capabilities                         |
 | RFC PR       | https://github.com/kubewarden/rfc/pull/52 |
-| State        | **IN-REVIEW**                             |
+| State        | **ACCEPTED**                              |
 
 # Summary
 
@@ -122,7 +122,18 @@ It is important to note that a cache miss (due to an expired or non-existent
 key) is not considered an error. In this scenario, the response will have a
 `code` of `0`, but the `value` field will be empty.
 
-## policy-evaluator Changes
+## SDKs Changes
+
+All official Kubewarden SDKs (`rust`, `go`, `js`, etc.) must be updated. They
+should provide language-native functions and types that abstract away the raw
+JSON payload construction and host calls for the `cache.get` and `cache.set`
+operations.
+
+## Suggested technical details
+
+This section is detailed suggestion of how to implement this host capability.
+
+### policy-evaluator Changes
 
 1. A new callback handler module will be added under `src/callback_handler`
    containing the functions to perform the `set` and `get` cache operations.
@@ -145,7 +156,7 @@ key) is not considered an error. In this scenario, the response will have a
    `Box<dyn Cache>`) to support multiple backend implementations at runtime.
    The `cached` crate's traits can serve as a foundation for this contract.
 
-## policy-server Changes
+### policy-server Changes
 
 The `policy-server` will be responsible for instantiating the cache backend and
 passing it to the `CallbackHandlerBuilder`. The `new_from_config` function will
@@ -167,16 +178,12 @@ allow the team adding another backend that is not nativaly supported by the
 `cached` crate. The goal is just to no couple Kubewarden code too much to the
 `cached` crate.
 
-## SDKs Changes
-
-All official Kubewarden SDKs (`rust`, `go`, `js`, etc.) must be updated. They
-should provide language-native functions and types that abstract away the raw
-JSON payload construction and host calls for the `cache.get` and `cache.set`
-operations.
-
 # Drawbacks
 
 # Alternatives
+
+The following alternatices descriptions are related to the suggested
+implementation.
 
 To avoid the performance overhead of runtime polymorphism (`dyn Trait`), we
 could define the cache backend at compile time using generics. However, this is
