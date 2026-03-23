@@ -10,25 +10,24 @@
 
 [summary]: #summary
 
-This RFC aims to implement the following promise: "If you can deploy namespaced
-policies, you can do so without obtaining raised privileges". This allows users
-to self-service namespaced policies securely.
+This RFC ensures the following promise: "If you can deploy namespaced
+policies, you can do so without obtaining raised privileges". This allows
+low-privileged users to self-service namespaced policies securely.
 
-This RFC proposes an implementation and UX to also gate context-aware
-capabilities in the PolicyServer side for namespaced policies. This gating will
-be enabled by default, and host-capabilities for namespaced policies will be
-opt-in from then on.
+This RFC proposes a UX to gate context-aware capabilities in the PolicyServer
+side for namespaced policies. This gating will be enabled by default, and
+host-capabilities for namespaced policies will be opt-in from then on.
 
-No proposed change for cluster-wide policies (`ClusterAdmissionPolicies` and
-`ClusterAdmissionPolicyGroups`).
+This PolicyServer gating will extend to cluster-wide policies
+(`ClusterAdmissionPolicies` and `ClusterAdmissionPolicyGroups`).
 
 # Motivation
 
 [motivation]: #motivation
 
-By design, namespaced policies (`AdmissionPolicies` and
-`AdmissionPolicyGroups`) cannot fetch information from the Kubernetes cluster.
-Therefore, they don't have a `spec.contextAwareResources` field.
+Namespaced policies (`AdmissionPolicies` and `AdmissionPolicyGroups`) cannot
+fetch information from the Kubernetes cluster. Therefore, they don't have a
+`spec.contextAwareResources` field.
 
 Still, currently namespaced policies can exercise *some* of the host
 capabilities, those that aren't gated by the `spec.contextAwareResources`
@@ -44,12 +43,12 @@ lookup, and possible future ones.
 
 ### User story \#1
 
-A Cluster Operator wants to deploy Kubewarden in a safe manner, so teams using
-and self-servicing their own Namespaces can do so securely. The Cluster
-Operator achieves this by deploying secure PolicyServers for the needs of the
-teams. The policies from the teams will only be deployable against the allowed
-PolicyServer(s). Namespaced policies will only access the allowed context-aware
-capabilities offered by their PolicyServer(s).
+A Cluster Operator wants to deploy Kubewarden so teams using and self-servicing
+their own Namespaces can do so securely. The Cluster Operator achieves this by
+deploying dedicated PolicyServers for the needs of the teams. The policies from
+the teams will only be deployable against the allowed PolicyServer(s).
+Namespaced policies will only access the allowed context-aware capabilities
+offered by their PolicyServer(s).
 
 ### User story \#2
 
@@ -69,16 +68,23 @@ A Policy Developer wants to create policies that specify the needed
 context-aware resources, or gracefully degrade if possible, when they don't
 have permissions for specific context-aware calls.
 
-### User story \#5
-
-A Cluster Operator wants to configure PolicyServers used for cluster-wide
-policies, so they are limited in which host-capabilities they can use.
-
 # Detailed design
 
 [design]: #detailed-design
 
-## List of allowed context-aware capabilities
+## Policies
+
+Namespaced policies (AdmissionPolicies & AdmissionPolicyGroups) must now be
+scheduled to run in a secure-by-default PolicyServer.
+
+Documentation of policies that depend on context aware calls must be updated to
+mention those calls. 
+
+Namespaced policies don't have a `spec.contextAwareResources`, therefore no
+access to Kubernetes resources. This stays the same for now, see
+[future work].
+
+## Allowed context-aware calls
 
 Each context-aware capability calls a host-call API function. These functions
 are defined via a string that usually has a version and a "namespace". For
@@ -88,82 +94,172 @@ specification](https://docs.kubewarden.io/reference/spec/host-capabilities/intro
 
 We will use these function paths to uniquely refer to capabilities.
 
-We will accept partial paths to these functions calls: if `v1/kubernetes` is
+We will accept partial paths to these functions calls: if `oci/v2` is
 provided, that will refer to all API calls under that namespace, for example,
-this includes `v1/kubernetes/get_resource`  or
-`v1/kubernetes/list_resources_all`. This is safe to implement since we control
+this includes `oci/v2/verify`  or
+`oci/v2/oci_manifest_config`. This is safe to implement since we control
 the list of function calls.
+
+An exception is the `kubernetes/*` calls that are already gated by expecting a
+list of context-aware resource, passed via a `spec.contextAwareResources`,
+since namespaced policies' CRDs don't included that spec field for now,
+see [future work].
+
+### List of context-aware calls
+
+#### OCI:
+- `kubewarden/oci/v1/verify`
+- `kubewarden/oci/v2/verify`
+- `kubewarden/oci/v1/manifest_digest`
+- `kubewarden/oci/v1/oci_manifest`
+- `kubewarden/oci/v1/oci_manifest_config`
+
+#### Kubernetes
+
+All are unversioned.
+The following are not available already for namespaced policies:
+- `kubewarden/kubernetes/list_resources_by_namespace`
+- `kubewarden/kubernetes/list_resources_all`
+- `kubewarden/kubernetes/get_resource`
+
+The can_i is available:
+- `kubewarden/kubernetes/can_i`
+
+#### Net
+- `kubewarden/net/v1/dns_lookup_host`
+
+#### Crypto
+- `kubewarden/crypto/v1/is_certificate_trusted`
+
+#### Tracing
+- `kubewarden/tracing/log`: Always available.
 
 ## policy-server binary
 
-By default, for security reasons, the policy-server will not allow context
-aware calls (this is backwards-incompatible).
+Currently, the policy-server binary reads a `policies.yml` file with the
+`--policies policies.yml` flag. The policies names contain information
+if they are namespaced. Its format is as follows:
 
-The policy-server binary will accept a new optional `--allow-all-context-aware`
-flag that allows all host-capability calls.
-
-The policy-server binary will accept a new optional `--allowed-context-aware`
-flag to provide it with a list of host-capabilities calls. If provided, this
-flag has precedence over `--allow-all-context-aware` flag. The policy-server
-will only execute these host-capabilities.
-
-This new `--allowed-context-aware` flag expects 1 host-capability call
-identifier.
-
-For example:
-
-```console
---allowed-context-aware v1/manifest_digest
+```yaml
+# policies.yaml
+namespaced-prod-unique-service-selector: # in prod ns
+  module: registry://ghcr.io/kubewarden/policies/unique-service-selector-policy:v1.0.10
+pod-image-signatures: # policy group
+  policies:
+    sigstore_gh_action:
+      module: ghcr.io/kubewarden/policies/verify-image-signatures:v0.2.8
+      settings:
+        signatures:
+          - image: "*"
+            githubActions:
+            owner: "kubewarden"
+    reject_latest_tag:
+      module: ghcr.io/kubewarden/policies/trusted-repos-policy:v0.1.12
+      settings:
+        tags:
+          reject:
+            - latest
+  expression: "sigstore_gh_action() && reject_latest_tag()"
+  message: "The group policy is rejected."
 ```
 
-Several apparitions of this flag are accepted and aggregated together:
+The policy-server binary will accept a new `allowedContextAware` key for each
+policy listed there. This includes the policies in the policy groups.
 
-```console
---allowed-context-aware v1/manifest_digest \
---allowed-context-aware v2/verify \
---allowed-context-aware v1/kubernetes/can_i
+This new `allowedContextAware` can be set to:
+- An empty object (`{}`: the policy will be allowed all context aware calls.
+- An empty list (`[]`): no allowed context aware calls.
+- A list of elems, with some allowed context aware calls.
+
+Example:
+
+```yaml
+# policies.yaml
+namespaced-prod-unique-service-selector: # in prod ns
+  module: registry://ghcr.io/kubewarden/policies/unique-service-selector-policy:v1.0.10
+  allowedContextAware:
+  - kubernetes/v1/get_resource
+  - kubernetes/v1/list_resources_all
+pod-image-signatures: # policy group
+  policies:
+    sigstore_gh_action:
+      module: ghcr.io/kubewarden/policies/verify-image-signatures:v0.2.8
+      allowedContextAware:
+        - oci/v2/verify
+      settings:
+        signatures:
+          - image: "*"
+            githubActions:
+            owner: "kubewarden"
+    reject_latest_tag:
+      module: ghcr.io/kubewarden/policies/trusted-repos-policy:v0.1.12
+      settings:
+        tags:
+          reject:
+            - latest
+  expression: "sigstore_gh_action() && reject_latest_tag()"
+  message: "The group policy is rejected."
 ```
 
-If a policy is active, and makes use of a capability that it is not
-allowed to, the policy-server will error on the policy execution and log the
-attempted unprivileged use, just as it does now. By default, webhooks fail
-closed, so the policy will reject on error.
 
 ## PolicyServer Custom Resource
 
-Expose the new feature to the PolicyServers Custom Resources via new fields.
-They are mutually exclusive which is enforced by our validating webhook:
+Add a new spec field to the PolicyServer CRD, `spec.allowedContextAwareCalls`.
+Optional. Array of strings. Contains a list of context-aware host-call API
+calls allowed in the policy-server Deployment. Gets validated against a known
+valid list of context aware calls.
 
-- `spec.allowAllContextAware`. Boolean. Defaults to `false`. Setting it to
-  `true` would provide the functionality up until this RFC.  
-- `spec.allowedContextAware`. Optional. Array of strings.Contains a list of
-  context-aware host-call API calls allowed in the policy-server Deployment. For
-  example:
+The new `spec.allowedContextAwareCalls` accepts as element an entry `all`. If
+that's the case, it should be the only element. If provided, all context-aware
+API calls are allowed.
 
-```yaml
-spec:
-  allowedContextAware:
-    - v1/manifest_digest 
-    - v2/verify 
-    - v1/kubernetes/can_i
-```
+## Adm Controller
 
-This new feature is designed for PolicyServers used for namespaced policies,
-but it is optionally available for all PolicyServers.
+The Adm Controller uses the new PolicyServer spec field
+`spec.allowedContextAwareCalls` when reconciling the `policies.yaml` ConfigMap
+for the policy-server:
+
+- If `spec.allowedContextAwareCalls` contains `all`, the policies listed in the
+`policies.yaml` get their `allowedContextAware` set to `{}` (empty object),
+allowing all context aware calls for each policy. This provides the
+functionality up until this RFC.
+
+- If `spec.allowedContextAwareCalls` is a list (empty, or with elements), the
+Controller sets the policies `allowedContextAware` key with it, giving
+them zero allowed calls (empty list), or those specified in the list, verified
+against the know list of available calls.
+
+The Controller doesn't diferentiate between namespaced or clusterwide policies
+when populating the `policies.yaml` ConfigMap: the allowed context-aware calls
+are applied to all policies. We expect PolicyServers to be dedicated to
+namespaced policies, and configured as such, with general PolicyServers that are
+for cluster-wide policies to lack their `spec.allowedContextAwareCalls`.
 
 ## Mapping ClusterAdmissionPolicy
 
-To map the Namesapces to PolicyServers of all the namespaced policies, we
-provide a new default mutating ClusterAdmissionPolicy, named
-`map-ns-to-policyservers`. The policy is installed by default.
+To map the Namespaces of the namespaced policies to secure PolicyServers, we
+provide a new ClusterAdmissionPolicy, named `map-ns-to-policyservers`, intalled
+by default.
 
-This policy checks for all namespaced policies and mutates their
-`spec.policyServer` to match the policy settings. These PolicyServers may or
+This is just one possible mapping policy, Cluster Operators could deploy their
+own using other schemes (e.g: using LabelSelectors for the mapping, etc).
+
+This policy applies to namespaced policies and mutates their
+`spec.policyServer` to match the provided settings. These PolicyServers may or
 not be already created or ready; in that case the policies will stay in
-`scheduled` status.
+`scheduled` status with no harm done.
 
+The new policy will look like this:
 
 ```yaml
+# policy.yaml
+apiVersion: policies.kubewarden.io/v1
+kind: ClusterAdmissionPolicy
+metadata:
+  name: map-ns-to-policyservers
+spec:
+  module: registry://ghcr.io/kubewarden/policies/map-ns-to-policyservers:v0.1.0
+  mode: enforce
 spec:
   mutating: true
   rules:
@@ -177,11 +273,9 @@ spec:
     # see mapping RFC section
 ```
 
-
-## Mapping Namespace-to-PolicyServer
+### Mapping Namespace-to-PolicyServer
 
 The mapping is used by the policy settings:
-the sort:
 
 ```yaml
 # ConfigMap policy-server-mapping
@@ -192,13 +286,13 @@ settings:
   defaultPolicyServer: policyserver-namespaced-policies   # default catch-all
 ```
 
-This format would allow us do 1:1, many:1,, and catch-all mappings for future
+This format would allow us do 1:1, many:1, and catch-all mappings for future
 proofing.
 
-This provides Cluster Operators with a central place for observability. It
-would be good to expose this via metrics and events.
+This provides Cluster Operators with a central place for observability. We
+could expose this in the future via metrics and events.
 
-### Ambiguous patterns
+#### Ambiguous patterns
 
 Overlapping or ambiguous patterns (e.g. `prod-*` and `*`) can have unintended
 PolicyServer assignments and escalate privileges.
@@ -212,33 +306,27 @@ Using only `*` is not allowed:
 settings:
   namespaceToPolicyServers:
     "prod-*": policyserver-prod 
-    "*": policyserver-A  # what happens now? do we use the default PolicyServer?
-  defaultPolicyServer: policyserver-namespaced-policies
+    "*": policyserver-A  # Not allowed. what would happen if so? do we use the default PolicyServer?
+  defaultPolicyServer: default-namespaced-policies
 ```
-
-### Race conditions during mapping updates
-
-Simultaneous updates to the mapping could result in inconsistent assignments.
-We must reconcile webhooks after each mapping state change.
-
 
 ## Helm Charts
 
 We deploy our PolicyServer `default` with full permissions for cluster-wide
 policies.
 
-We deploy a new PolicyServer `namespaced-policies` with as restrictive
-permissions as possible, by default. This means zero allowed host-capabilities.
+We deploy a new PolicyServer `for-namespaced-policies` with as restrictive
+permissions as possible: zero allowed host-capabilities.
 Its permissions are optionally configurable via `kubewarden-defaults` Helm
 chart values.
 
-By default, we deploy a mutating ClusterAdmissionPolicy
-`map-ns-to-policyservers` with the following settings:
+We deploy a mutating ClusterAdmissionPolicy `map-ns-to-policyservers` with the
+following settings:
 
 ```yaml
 # settings of mapping policy
 settings:
-  defaultPolicyServer: policyserver-namespaced-policies # default catch-all
+  defaultPolicyServer: default-namespaced-policies # default catch-all
 ```
 
 We allow users to disable this policy or edit the policy settings via
@@ -249,29 +337,24 @@ with their needs.
 
 ## Upgrade scenario
 
-With this change, namespaced policies may become unschedulable because their
-desired `spec.policyServer` is not a valid one.
-
-Existing namespaced policies need to mutated by the mapping policy. We can
-add a post-install hook that waits for the mapping policy to be active,
-and then updates all namespaced policies.
+Existing namespaced policies must be mutated by the mapping policy. For that,
+we must trigger updates of all existing namespaced policies. We can do this by
+adding a post-install hook that waits for the mapping policy to be active, then
+triggers these trivial updates of the existing namespaced policies.
 
 ## General documentation
 
-Add a how-to page for Cluster Operators explaining how to configure
-PolicyServers to expose capabilities. Include a list of host-call API function
-paths that can be used in their configure.
+Add a how-to page for Cluster Operators explaining the new PolicyServer feature.
+Include a list of host-call API function paths that can be used in their
+configure.
 
-Ensure the reference docs for the current host-capabilities calls list their
-host-call API function calls.
+Ensure the reference docs for the host-capabilities list their API calls.
 
 ## Threat Model expansion
 
-Expand documentation of our [Threat
-Model](https://docs.kubewarden.io/reference/threat-model) to include this new
-promise. Add possible threats, such as users deploying vulnerable namespaced
-policies, and mitigations, such as cluster operators configuring PolicyServers
-correctly.
+Expand our [Threat Model](https://docs.kubewarden.io/reference/threat-model)
+docs to include the promise: "If you can deploy namespaced policies, you can do
+so without obtaining raised privileges".
 
 Add the following threats & mitigations.
 
@@ -284,21 +367,10 @@ permissions to extract information from the cluster.
 
 Mitigation:
 
-Cluster Operator should either not allow low-privileged users to
-deploy namespaced policies, or configure the PolicyServer with a list of
-desired host-capabilities to allow.
-
-### Threat: Scheduling policy in incorrect PolicyServer
-
-Threat:
-
-A low-privileged user tries to schedule a privileged policy against a
-PolicyServer they should not be allowed to.
-
-Mitigation:
-
-The Cluster operator ensures the mutating ClusterAdmissionPolicy that we
-install by default is installed and active.
+Cluster Operator should either not allow low-privileged users to deploy
+namespaced policies, map their namespaced policies to the default
+`for-namespaced-policies` PolicyServer, or configure themselves a PolicyServer
+with a list of desired host-capabilities to allow.
 
 ### Threat: PolicyServer Compromise
 
@@ -309,8 +381,8 @@ especially if the PolicyServer has broad host-capabilities.
 
 Mitigation:
 
-- Minimize host-capabilities per PolicyServer.  
-- Isolate PolicyServers for sensitive Namespaces.  
+- Apply principle of least privilege to host-capabilities on PolicyServer.
+- Isolate PolicyServers for sensitive Namespaces.
 - Regularly audit and update PolicyServer configurations.
 
 ### Threat: Stale or Outdated custom Namespace-to-PolicyServer Mapping
@@ -326,101 +398,33 @@ Mitigation:
 - Automate mapping policy updates as part of Namespace/PolicyServer lifecycle
   management, and wait for the policy to be active before scheduling follow-up
   namespaced policies in the Namespaces.
-- Periodically reconcile actual assignments with intended mappings and alert on drift.
-
-### Threat: Misconfiguration of Namespace-to-PolicyServer Mapping
-
-Threat:  
-
-Operator error in the mapping could assign sensitive Namespaces to
-less-restricted PolicyServers.
-
-Mitigation:  
-
-Validate mapping changes, provide tooling for safe updated, audit mapping
-changes.
-
-## Examples
-
-The examples are listed under our Threat Model expansion.
+- Periodically reconcile actual assignments with intended mappings and alert on
+  drift.
 
 # Drawbacks
 
 UX becomes a bit more complex. Cluster Operators that don't want low-privileged
-or unprivileged users can still opt-out by setting PolicyServers'
-`spec.allowAllContextAware` to `true`.
-
-Adding a new `/validate_gated` complicates our Admission Controller and overall
-architecture.
+or unprivileged users with permissions to deploy namespaced poliocies can
+opt-out by setting PolicyServers' `spec.allowedContextAware` to `all`.
 
 # Alternatives
 
-## Opt-in to simplify UX
+## Opt-in feature to simplify UX
 
 Not every Cluster Operator uses namespaced policies. And for those that do,
 they don't always allow non-privileged users RBAC to namespaced policies.
-Therefore, make the RFC feature opt-in, and by default stay with status-quo.
+Therefore, make this RFC feature opt-in, and by default stay with status-quo.
 This simplifies UX, as users don't need to care about maintaining possible
 mapping.
 
 This would break the RFC promise  "If you can deploy namespaced policies, you
 can do so without obtaining raised privileges".
 
-## Map with ConfigMap
-
-To map Namespaces to PolicyServers, the Controller reads a ConfigMap and
-reconciles policies as needed.
-
-Advantages:  
-
-We can always reconcile a namespaced policy if the mappings change. We cannot
-do that with the mapping policy, if the namespaced policy is not updated.
-
-Disadvantages:  
-
-Less flexible. Still, users can always not use the ConfigMap and use their
-own mapping policy if desired.
-
-## Support Label selectors for mapping
-
-The Controller matches Namespace labels to assigned PolicyServers, by the
-provided mapping configuration:
-
-```yaml
-data:
-  labelSelectorToPolicyServers:
-    "env=prod": [policyserver-prod]
-    "team=foo": [policyserver-team-foo]
-```
-
-## Map with Namespace labels
-
-To map Namespaces to PolicyServers, use Labels in Namespaces. This is simpler
-than other mappings. However:
-
-- Mapping would be 1:1 or 1:many-PolicyServers, but no many-Namespaces:1.
-  Unless we duplicate label values and add complexity.  
-- Changing labels may trigger other controllers and policies.  
-- Threat of escalation if user uses a label that matches a pattern mapped to a
-  more privileged PolicyServer.
-
-## Map with new PolicyServer `spec.namespaceMappings`
-
-Each PolicyServer has their mappings saved in a `spec.namespaceMappings`. We
-allow globs. The Controller validates that the several mappings between all
-PolicyServers don't have conflicts, and if so, it errors on create/update (this
-may introduce racy errors when creating several PolicyServers at once).
-
-## Map with new PolicyServerMapping Custom Resource
-
-Same as the ConfigMap approach, but using a Custom Resource. Allows us to
-validate the format easier on its creation/update.
-
 ## A new policy-server endpoint
 
-Instead of separating gated-only PolicyServers and mapping Namespaces to
-PolicyServers, we could use a new `/validate_gated` policy-server endpoint. The
-new `--allowed-context-aware` would only apply to that endpoint, and namespaced
+Instead of separating PolicyServers and mapping Namespaces to PolicyServers, we
+could use a new `/validate_gated` policy-server endpoint. The new
+`--allowed-context-aware` would only apply to that endpoint, and namespaced
 policies would always be bound to that endpoint.
 
 ## Reduce PolicyServers RBAC
@@ -439,19 +443,44 @@ leak information. For example, check for RBAC permissions when doing
 SubjectAccessReview, check for login into the OCI registries, check for general
 network permissions when making networking queries, etc.
 
-## Reduce Context-aware to clusterwide policies only
+## Allow Context-aware to clusterwide policies only
 
 This is a backwards-incompatible change. There's better approaches, like this
 RFC.
+
+# Future work
+
+[future work]: #future-work
+
+## Add `spec.contextAwareResources` to namespaced policies
+
+
+Add new `spec.contextAwareResources` field to namespaced policies, analogous to
+the same field for cluster-wide policies.
+
+This means that policies can query for non-namespaced resources. We should only
+allow querying for namesapced resources in their own namespace. And even then,
+care should be taken as users may not have RBAC for such operations, but the
+PolicyServers used by the policy may have enough RBAC, and this would be a form
+of data exfiltration.
+
+Right now, we have the `policies.yml` convention of naming policies as:
+```
+{namespaced-<ns name>-}<policy name>`
+```
+
+We could use that to obtain the Namespace that the policy can read from,
+or extend `policies.yml` to annotate the policy Namespace if needed.
+
+This would allow a new family of policies. For example, the
+`unique-service-selector-policy` works by checking all Services within the same
+Namespace for uniqueness, with a `list_services(service.metadata.namespace)`
+(Services with the same selectors are only considered duplicates within the
+same Namespace).
 
 # Unresolved questions
 
 [unresolved]: #unresolved-questions
 
-- There's no way to now at policy instantiation time of what capabilities a
-  policy makes use of, and we cannot trust self-reporting. This means that policy
-  status will never show a `lacks-permissions` to the user or similar. Such
-  policies will fail on execution time instead.  
 - Compatibility with RFC-22 (policy lifecyle) for future proofing.  
-- Compatibility with [Raw policies](https://docs.kubewarden.io/howtos/raw-policies).
 
