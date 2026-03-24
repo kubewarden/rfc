@@ -88,7 +88,7 @@ access to Kubernetes resources. This stays the same for now, see
 
 Each context-aware capability calls a host-call API function. These functions
 are defined via a string that usually has a version and a "namespace". For
-example, `v1/kubernetes/can_i`. These strings match the host-call API call
+example, `kubernetes/can_i`. These strings match the host-call API call
 listed in the [Host capabilities
 specification](https://docs.kubewarden.io/reference/spec/host-capabilities/intro-host-capabilities).
 
@@ -108,11 +108,11 @@ see [future work].
 ### List of context-aware calls
 
 #### OCI:
-- `kubewarden/oci/v1/verify`
-- `kubewarden/oci/v2/verify`
-- `kubewarden/oci/v1/manifest_digest`
-- `kubewarden/oci/v1/oci_manifest`
-- `kubewarden/oci/v1/oci_manifest_config`
+- `oci/v1/verify`
+- `oci/v2/verify`
+- `oci/v1/manifest_digest`
+- `oci/v1/oci_manifest`
+- `oci/v1/oci_manifest_config`
 
 #### Kubernetes
 
@@ -123,16 +123,17 @@ The following are not available already for namespaced policies:
 - `kubewarden/kubernetes/get_resource`
 
 The can_i is available:
-- `kubewarden/kubernetes/can_i`
+- `kubernetes/can_i`
+
 
 #### Net
-- `kubewarden/net/v1/dns_lookup_host`
+- `net/v1/dns_lookup_host`
 
 #### Crypto
-- `kubewarden/crypto/v1/is_certificate_trusted`
+- `crypto/v1/is_certificate_trusted`
 
 #### Tracing
-- `kubewarden/tracing/log`: Always available.
+- `tracing/log`: Always available.
 
 ## policy-server binary
 
@@ -178,8 +179,8 @@ Example:
 namespaced-prod-unique-service-selector: # in prod ns
   module: registry://ghcr.io/kubewarden/policies/unique-service-selector-policy:v1.0.10
   allowedContextAware:
-  - kubernetes/v1/get_resource
-  - kubernetes/v1/list_resources_all
+  - kubernetes/get_resource
+  - kubernetes/list_resources_all
 pod-image-signatures: # policy group
   policies:
     sigstore_gh_action:
@@ -260,12 +261,11 @@ metadata:
 spec:
   module: registry://ghcr.io/kubewarden/policies/map-ns-to-policyservers:v0.1.0
   mode: enforce
-spec:
   mutating: true
   rules:
     - apiGroups: ["policies.kubewarden.io"]
       apiVersions: ["*"]
-      resources: ["ClusterAdmissionPolicy", "ClusterAdmissionPolicyGroup"]
+      resources: ["AdmissionPolicy", "AdmissionPolicyGroup"]
       operations:
         - CREATE
         - UPDATE
@@ -283,7 +283,7 @@ settings:
   namespaceToPolicyServers:
     "team-A": policyserver-team # ns name starting with `team-A` scheduled in `policyserver-team`
     "prod-*": policyserver-prod # we support globs for ns names
-  defaultPolicyServer: policyserver-namespaced-policies   # default catch-all
+  defaultPolicyServer: default-namespaced-policies   # default catch-all
 ```
 
 This format would allow us do 1:1, many:1, and catch-all mappings for future
@@ -300,7 +300,7 @@ PolicyServer assignments and escalate privileges.
 Therefore, we must enforce deterministic pattern matching order, most specific
 first.
 
-Using only `*` is not allowed:
+Using only `*` is not allowed, and is a CRD error:
 
 ```yaml
 settings:
@@ -340,7 +340,7 @@ with their needs.
 Existing namespaced policies must be mutated by the mapping policy. For that,
 we must trigger updates of all existing namespaced policies. We can do this by
 adding a post-install hook that waits for the mapping policy to be active, then
-triggers these trivial updates of the existing namespaced policies.
+updates the generation of the existing namespaced policies.
 
 ## General documentation
 
@@ -404,8 +404,8 @@ Mitigation:
 # Drawbacks
 
 UX becomes a bit more complex. Cluster Operators that don't want low-privileged
-or unprivileged users with permissions to deploy namespaced poliocies can
-opt-out by setting PolicyServers' `spec.allowedContextAware` to `all`.
+or unprivileged users with permissions to deploy namespaced policies can
+opt-out by setting PolicyServers' `spec.allowedContextAwareCalls` to `all`.
 
 # Alternatives
 
