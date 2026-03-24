@@ -210,7 +210,10 @@ pod-image-signatures: # policy group
 Add a new spec field to the PolicyServer CRD, `spec.allowedContextAwareCalls`.
 Optional. Array of strings. Contains a list of context-aware host-call API
 calls allowed in the policy-server Deployment. Gets validated against a known
-valid list of context aware calls.
+valid list of context aware calls. Defaults to allowing all calls with `[all]`,
+which is backwards-compatible with users' PolicyServers. The namespaced policies
+get mapped to our `default-namespaced-policies` PolicyServer, so they will not
+get permissions to all capabilities.
 
 The new `spec.allowedContextAwareCalls` accepts as element an entry `all`. If
 that's the case, it should be the only element. If provided, all context-aware
