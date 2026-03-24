@@ -117,14 +117,16 @@ see [future work].
 #### Kubernetes
 
 All are unversioned.
-The following are not available already for namespaced policies:
-- `kubewarden/kubernetes/list_resources_by_namespace`
-- `kubewarden/kubernetes/list_resources_all`
-- `kubewarden/kubernetes/get_resource`
 
 The can_i is available:
 - `kubernetes/can_i`
 
+The following are not available already for namespaced policies, hence they
+aren't taken into account nor publiciced. This allows to, in the case of
+cluster-wide policies, defer to the policy `spec.contextAwareResources`.
+- `kubernetes/list_resources_by_namespace`
+- `kubernetes/list_resources_all`
+- `kubernetes/get_resource`
 
 #### Net
 - `net/v1/dns_lookup_host`
