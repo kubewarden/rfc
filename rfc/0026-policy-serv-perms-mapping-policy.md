@@ -265,7 +265,7 @@ metadata:
   name: map-ns-to-policyservers
 spec:
   module: registry://ghcr.io/kubewarden/policies/map-ns-to-policyservers:v0.1.0
-  mode: enforce
+  mode: protect
   mutating: true
   rules:
     - apiGroups: ["policies.kubewarden.io"]
