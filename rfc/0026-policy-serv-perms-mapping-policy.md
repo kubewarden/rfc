@@ -137,6 +137,42 @@ cluster-wide policies, defer to the policy `spec.contextAwareResources`.
 #### Tracing
 - `tracing/log`: Always available.
 
+## PolicyServer Custom Resource
+
+Add a new specification field to the PolicyServer CRD, `spec.allowedHostCapabilities`.
+Optional. Array of strings. Contains a list of host capability API
+calls allowed in the policy-server Deployment. Gets validated against a known
+valid list of host capability calls. Defaults to allowing all calls with `[all]`,
+which is backwards-compatible with users' PolicyServers. The namespaced policies
+get mapped to our `default-namespaced-policies` PolicyServer, so they will not
+get permissions to all capabilities.
+
+The new `spec.allowedHostCapabilities` accepts as element an entry `all`. If
+that's the case, it should be the only element. If provided, all host capability
+API calls are allowed.
+
+## Adm Controller
+
+The Adm Controller uses the new PolicyServer spec field
+`spec.allowedHostCapabilities` when reconciling the `policies.yaml` ConfigMap
+for the policy-server:
+
+- If `spec.allowedHostCapabilities` contains `all`, the policies listed in the
+`policies.yaml` get their `allowedContextAware` set to `{}` (empty object),
+allowing all host calls for each policy. This provides the functionality before
+this RFC.
+
+- If `spec.allowedHostCapabilities` is a list (empty, or with elements), the
+Controller sets the policies `allowedContextAware` key with it, giving
+them zero allowed calls (empty list), or those specified in the list, verified
+against the know list of available calls.
+
+The Controller doesn't diferentiate between namespaced or clusterwide policies
+when populating the `policies.yaml` ConfigMap: the allowed host calls
+are applied to all policies. We expect PolicyServers to be dedicated to
+namespaced policies, and configured as such, with general PolicyServers that are
+for cluster-wide policies to lack their `spec.allowedHostCapabilities`.
+
 ## policy-server binary
 
 Currently, the policy-server binary reads a `policies.yml` file with the
@@ -203,43 +239,6 @@ pod-image-signatures: # policy group
   expression: "sigstore_gh_action() && reject_latest_tag()"
   message: "The group policy is rejected."
 ```
-
-
-## PolicyServer Custom Resource
-
-Add a new specification field to the PolicyServer CRD, `spec.allowedHostCapabilities`.
-Optional. Array of strings. Contains a list of host capability API
-calls allowed in the policy-server Deployment. Gets validated against a known
-valid list of host capability calls. Defaults to allowing all calls with `[all]`,
-which is backwards-compatible with users' PolicyServers. The namespaced policies
-get mapped to our `default-namespaced-policies` PolicyServer, so they will not
-get permissions to all capabilities.
-
-The new `spec.allowedHostCapabilities` accepts as element an entry `all`. If
-that's the case, it should be the only element. If provided, all host capability
-API calls are allowed.
-
-## Adm Controller
-
-The Adm Controller uses the new PolicyServer spec field
-`spec.allowedHostCapabilities` when reconciling the `policies.yaml` ConfigMap
-for the policy-server:
-
-- If `spec.allowedHostCapabilities` contains `all`, the policies listed in the
-`policies.yaml` get their `allowedContextAware` set to `{}` (empty object),
-allowing all host calls for each policy. This provides the functionality before
-this RFC.
-
-- If `spec.allowedHostCapabilities` is a list (empty, or with elements), the
-Controller sets the policies `allowedContextAware` key with it, giving
-them zero allowed calls (empty list), or those specified in the list, verified
-against the know list of available calls.
-
-The Controller doesn't diferentiate between namespaced or clusterwide policies
-when populating the `policies.yaml` ConfigMap: the allowed host calls
-are applied to all policies. We expect PolicyServers to be dedicated to
-namespaced policies, and configured as such, with general PolicyServers that are
-for cluster-wide policies to lack their `spec.allowedHostCapabilities`.
 
 ## Mapping ClusterAdmissionPolicy
 
