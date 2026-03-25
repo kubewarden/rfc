@@ -14,9 +14,9 @@ This RFC fulfills the following promise: "If you can deploy namespaced
 policies, you can do so without obtaining raised privileges". This allows
 low-privileged users to self-service namespaced policies securely.
 
-This RFC proposes a UX to gate context-aware capabilities on the PolicyServer
+This RFC proposes a UX to gate host capabilities on the PolicyServer
 side for namespaced policies. This gating will be enabled by default, and
-host-capabilities for namespaced policies will then be opt-in.
+host capabilities for namespaced policies will then be opt-in.
 
 This PolicyServer gating will extend to cluster-wide policies
 (`ClusterAdmissionPolicies` and `ClusterAdmissionPolicyGroups`).
@@ -47,7 +47,7 @@ A Cluster Operator wants to deploy Kubewarden so teams using and self-servicing
 their own Namespaces can do so securely. The Cluster Operator achieves this by
 deploying dedicated PolicyServers for their needs. Policies from
 teams will only be deployable against the allowed PolicyServer(s).
-Namespaced policies will only access the allowed context-aware capabilities
+Namespaced policies will only access the allowed host capabilities
 offered by their PolicyServer(s).
 
 ### User story \#2
@@ -65,8 +65,8 @@ deployed securely against correctly configured PolicyServers.
 ### User story \#4
 
 A Policy Developer wants to create policies that specify the needed
-context-aware resources, or gracefully degrade if possible, when they don't
-have permissions for specific context-aware calls.
+context-aware resources and host capabilities, or gracefully degrade if
+possible, when they don't have permissions for specific host capability calls.
 
 # Detailed design
 
@@ -77,16 +77,16 @@ have permissions for specific context-aware calls.
 Namespaced policies (AdmissionPolicies & AdmissionPolicyGroups) must now be
 scheduled to run in a secure-by-default PolicyServer.
 
-Documentation of policies that depend on context aware calls must be updated to
+Documentation of policies that depend on host capability calls must be updated to
 mention those calls. 
 
 Namespaced policies don't have a `spec.contextAwareResources`, therefore no
 access to Kubernetes resources. This stays the same for now, see
 [future work].
 
-## Allowed context-aware calls
+## Allowed host capability calls
 
-Each context-aware capability calls a host-call API function. These functions
+Each host capability calls a host-call API function. These functions
 are defined via a string that usually has a version and a "namespace". For
 example, `kubernetes/can_i`. These strings match the host-call API call
 listed in the [Host capabilities
@@ -105,7 +105,7 @@ list of context-aware resources, passed via a `spec.contextAwareResources`,
 since namespaced policies' CRDs don't include that specification field for now,
 see [future work].
 
-### List of context-aware calls
+### List of host capability calls
 
 #### OCI:
 - `oci/v1/verify`
@@ -166,13 +166,13 @@ pod-image-signatures: # policy group
   message: "The group policy is rejected."
 ```
 
-The policy-server binary will accept a new `allowedContextAware` key for each
+The policy-server binary will accept a new `allowedHostCapabilities` key for each
 policy listed there. This includes the policies in the policy groups.
 
-This new `allowedContextAware` can be set to:
-- An empty object (`{}`: the policy will be allowed all context aware calls.
-- An empty list (`[]`): no allowed context aware calls.
-- A list of elems, with some allowed context aware calls.
+This new `allowedHostCapabilities` can be set to:
+- An empty object (`{}`: the policy will be allowed all host capability calls.
+- An empty list (`[]`): no allowed host capability calls.
+- A list of elems, with some host capability calls.
 
 Example:
 
@@ -180,14 +180,14 @@ Example:
 # policies.yaml
 namespaced-prod-unique-service-selector: # in prod ns
   module: registry://ghcr.io/kubewarden/policies/unique-service-selector-policy:v1.0.10
-  allowedContextAware:
+  allowedHostCapabilities:
   - kubernetes/get_resource
   - kubernetes/list_resources_all
 pod-image-signatures: # policy group
   policies:
     sigstore_gh_action:
       module: ghcr.io/kubewarden/policies/verify-image-signatures:v0.2.8
-      allowedContextAware:
+      allowedHostCapabilities:
         - oci/v2/verify
       settings:
         signatures:
@@ -207,39 +207,39 @@ pod-image-signatures: # policy group
 
 ## PolicyServer Custom Resource
 
-Add a new specification field to the PolicyServer CRD, `spec.allowedContextAwareCalls`.
-Optional. Array of strings. Contains a list of context-aware host-call API
+Add a new specification field to the PolicyServer CRD, `spec.allowedHostCapabilities`.
+Optional. Array of strings. Contains a list of host capability API
 calls allowed in the policy-server Deployment. Gets validated against a known
-valid list of context aware calls. Defaults to allowing all calls with `[all]`,
+valid list of host capability calls. Defaults to allowing all calls with `[all]`,
 which is backwards-compatible with users' PolicyServers. The namespaced policies
 get mapped to our `default-namespaced-policies` PolicyServer, so they will not
 get permissions to all capabilities.
 
-The new `spec.allowedContextAwareCalls` accepts as element an entry `all`. If
-that's the case, it should be the only element. If provided, all context-aware
+The new `spec.allowedHostCapabilities` accepts as element an entry `all`. If
+that's the case, it should be the only element. If provided, all host capability
 API calls are allowed.
 
 ## Adm Controller
 
 The Adm Controller uses the new PolicyServer spec field
-`spec.allowedContextAwareCalls` when reconciling the `policies.yaml` ConfigMap
+`spec.allowedHostCapabilities` when reconciling the `policies.yaml` ConfigMap
 for the policy-server:
 
-- If `spec.allowedContextAwareCalls` contains `all`, the policies listed in the
+- If `spec.allowedHostCapabilities` contains `all`, the policies listed in the
 `policies.yaml` get their `allowedContextAware` set to `{}` (empty object),
-allowing all context aware calls for each policy. This provides the
-functionality before this RFC.
+allowing all host calls for each policy. This provides the functionality before
+this RFC.
 
-- If `spec.allowedContextAwareCalls` is a list (empty, or with elements), the
+- If `spec.allowedHostCapabilities` is a list (empty, or with elements), the
 Controller sets the policies `allowedContextAware` key with it, giving
 them zero allowed calls (empty list), or those specified in the list, verified
 against the know list of available calls.
 
 The Controller doesn't diferentiate between namespaced or clusterwide policies
-when populating the `policies.yaml` ConfigMap: the allowed context-aware calls
+when populating the `policies.yaml` ConfigMap: the allowed host calls
 are applied to all policies. We expect PolicyServers to be dedicated to
 namespaced policies, and configured as such, with general PolicyServers that are
-for cluster-wide policies to lack their `spec.allowedContextAwareCalls`.
+for cluster-wide policies to lack their `spec.allowedHostCapabilities`.
 
 ## Mapping ClusterAdmissionPolicy
 
@@ -321,7 +321,7 @@ We deploy our PolicyServer `default` with full permissions for cluster-wide
 policies.
 
 We deploy a new PolicyServer `for-namespaced-policies` with as restrictive
-permissions as possible: zero allowed host-capabilities.
+permissions as possible: zero allowed host capabilities.
 Its permissions are optionally configurable via `kubewarden-defaults` Helm
 chart values.
 
@@ -363,7 +363,7 @@ so without obtaining raised privileges".
 
 Add the following threats & mitigations.
 
-### Threat: Attacker uses namespaced context-aware policy to extract information
+### Threat: Attacker uses namespaced policy to extract information
 
 Threat:
 
@@ -375,18 +375,18 @@ Mitigation:
 Cluster Operator should either:  
 * not allow low-privileged users to deploy namespaced policies
 * map their namespaced policies to the default `for-namespaced-policies` PolicyServer
-* configure themselves a PolicyServer with a list of desired host-capabilities to allow.
+* configure themselves a PolicyServer with a list of desired host capabilities to allow.
 
 ### Threat: PolicyServer Compromise
 
 Threat:
 
 If a PolicyServer is compromised, all Namespaces mapped to it are at risk,
-especially if the PolicyServer has broad host-capabilities.
+especially if the PolicyServer has broad host capabilities.
 
 Mitigation:
 
-- Apply principle of least privilege to host-capabilities on PolicyServer.
+- Apply principle of least privilege to host capabilities on PolicyServer.
 - Isolate PolicyServers for sensitive Namespaces.
 - Regularly audit and update PolicyServer configurations.
 
@@ -410,7 +410,7 @@ Mitigation:
 
 UX becomes a bit more complex. Cluster Operators that don't want low-privileged
 or unprivileged users with permissions to deploy namespaced policies can
-opt-out by setting PolicyServers' `spec.allowedContextAwareCalls` to `all`.
+opt-out by setting PolicyServers' `spec.allowedHostCapabilities` to `all`.
 
 # Alternatives
 
@@ -429,7 +429,7 @@ can do so without obtaining raised privileges".
 
 Instead of separating PolicyServers and mapping Namespaces to PolicyServers, we
 could use a new `/validate_gated` policy-server endpoint. The new
-`--allowed-context-aware` would only apply to that endpoint, and namespaced
+`--allowed-host-capability` would only apply to that endpoint, and namespaced
 policies would always be bound to that endpoint.
 
 ## Reduce PolicyServers RBAC
@@ -438,17 +438,17 @@ Reduce or remove the RBAC provided in each PolicyServers, including the
 PolicyServer `default`. Cluster Operators must then configure each PolicyServer
 (including the `default`) with their desired RBAC. This configuration is less
 explicit than adding the feature provided in this RFC, and only blocks
-Kubernetes context-aware capabilities, but not those for OCI registries or DNS
+Kubernetes host capabilities, but not those for OCI registries or DNS
 lookups, for example.
 
-## Check explicit permissions per host-capability
+## Check explicit permissions per host capability
 
-Implement explicit allow-list permissions, per context-aware feature that may
+Implement explicit allow-list permissions, per host capability call that may
 leak information. For example, check for RBAC permissions when doing
 SubjectAccessReview, check for login into the OCI registries, check for general
 network permissions when making networking queries, etc.
 
-## Allow Context-aware to clusterwide policies only
+## Allow host capabilities on clusterwide policies only
 
 This is a backwards-incompatible change. There's better approaches, like this
 RFC.
