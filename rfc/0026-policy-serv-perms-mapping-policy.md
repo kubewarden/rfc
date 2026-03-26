@@ -343,6 +343,27 @@ we must trigger updates of all existing namespaced policies. We can do this by
 adding a post-install hook that waits for the mapping policy to be active, then
 updates the generation of the existing namespaced policies.
 
+## Policy metadata
+
+Each policy is annotated with metadata. Add a new policy metadata annotation
+that contains a list of allowed host capabilities. For example:
+
+```yaml
+# metadata.yml
+annotations:
+  io.kubewarden.policy.allowedHostCapabilities:
+    - kubernetes/can_i
+```
+
+The semantics of this new annotation are the same as for the
+`allowedHostCapabilities` field in `policies.yaml`.
+
+## Kwctl
+
+In the future, expand `kwctl scaffold` and `kwctl run` so they take into
+account the new metadata annotation to scaffold CRs and run the policy,
+respectively.
+
 ## General documentation
 
 Add a how-to page for Cluster Operators explaining the new PolicyServer feature.
@@ -484,4 +505,3 @@ same Namespace).
 [unresolved]: #unresolved-questions
 
 - Compatibility with RFC-22 (policy lifecyle) for future proofing.  
-
