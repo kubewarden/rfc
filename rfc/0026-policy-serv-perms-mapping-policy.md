@@ -266,6 +266,9 @@ spec:
   module: registry://ghcr.io/kubewarden/policies/map-ns-to-policyservers:v0.1.0
   mode: protect
   mutating: true
+  contextAwareResources:
+    - apiVersion: v1
+      kind: Namespace # to read Labels from Namespaces
   rules:
     - apiGroups: ["policies.kubewarden.io"]
       apiVersions: ["*"]
@@ -284,34 +287,28 @@ The mapping is used by the policy settings:
 ```yaml
 # ConfigMap policy-server-mapping
 settings:
-  namespaceToPolicyServers:
-    "team-A": policyserver-team # ns name starting with `team-A` scheduled in `policyserver-team`
-    "prod-*": policyserver-prod # we support globs for ns names
-  defaultPolicyServer: default-namespaced-policies   # default catch-all
+  # Label name to read from Namespace. Its value will be used as the designated
+  # PolicyServer for that Namespace.
+  # The Value must be a valid Kubernetes resource name (DNS-1123 label)
+  namespaceLabelToPolicyServerName: kubewarden.io/policy-server
+  # Default PolicyServer, in case the label is not set in the Namespace
+  defaultPolicyServer: default-namespaced-policies
 ```
 
-This format would allow us do 1:1, many:1, and catch-all mappings for future
-proofing.
+Usually Namespace tenants don't have privileges to create/edit Namespaces.
+Cluster Operators can use Labels of the Namespace: the policy makes a
+context-aware call, finds that label and then uses the label as the name of the
+PolicyServer to be used.
 
-This provides Cluster Operators with a central place for observability. We
-could expose this in the future via metrics and events.
-
-#### Ambiguous patterns
-
-Overlapping or ambiguous patterns (e.g. `prod-*` and `*`) can have unintended
-PolicyServer assignments and escalate privileges.
-
-Therefore, we must enforce deterministic pattern matching order, most specific
-first.
-
-Using only `*` is not allowed, and is a CRD error:
-
+For example, in the following Namespace, its namespaced policies will be
+scheduled in the PolicyServer named `my-app-policies`:
 ```yaml
-settings:
-  namespaceToPolicyServers:
-    "prod-*": policyserver-prod 
-    "*": policyserver-A  # Not allowed. what would happen if so? do we use the default PolicyServer?
-  defaultPolicyServer: default-namespaced-policies
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: my-app
+  labels:
+    kubewarden.io/policy-server: my-app-policies
 ```
 
 ## Helm Charts
