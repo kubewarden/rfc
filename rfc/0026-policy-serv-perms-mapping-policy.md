@@ -18,9 +18,6 @@ This RFC proposes a UX to gate host capabilities on the PolicyServer
 side for namespaced policies. This gating will be enabled by default, and
 host capabilities for namespaced policies will then be opt-in.
 
-This PolicyServer gating will extend to cluster-wide policies
-(`ClusterAdmissionPolicies` and `ClusterAdmissionPolicyGroups`).
-
 # Motivation
 
 [motivation]: #motivation
@@ -466,6 +463,16 @@ RFC.
 # Future work
 
 [future work]: #future-work
+
+## Add `spec.allowedHostCapabilities` to cluster-wide policies
+
+Contrary to the namespaced policies, which can't define their own limitations,
+the cluster-wide can, as they are only accessible to Cluster Operators.
+
+Expand the cluster-wide policies CRDs to include `spec.allowedHostCapabilities`.
+
+The mechanism would be the same: the controller filling correctly the
+`policies.yaml`, which gets server to the policy-server binary.
 
 ## Add `spec.contextAwareResources` to namespaced policies
 
