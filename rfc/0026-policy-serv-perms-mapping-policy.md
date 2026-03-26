@@ -234,11 +234,52 @@ pod-image-signatures: # policy group
   message: "The group policy is rejected."
 ```
 
-## Mapping ClusterAdmissionPolicy
+
+## Helm Charts
+
+By default, our PolicyServer `default`, will allow no host capability calls.
+This is secure by default, backwards-incompatible and breaks upgrades.
+
+Cluster Operators wishing to keep the old behavior must explicitly allow
+a list of host capabilities (or `*`) using a new Value of the 
+`kubewarden-defaults` Helm chart,
+`.Values.policyServer.allowedHostCapabilities`, which sets the PolicyServer
+`spec.allowedHostCapabilities` for the `default` PolicyServer.
+
+## Upgrade scenario
+
+By default, existing namespaced policies will not be allowed any host
+capability calls, which is backwards-incompatible.
+
+Cluster Operators must configure their own PolicyServers and a mapping policy,
+or set `.Values.policyServer.allowedHostCapabilities` to `*` for the old
+insecure behavior.
+
+We must note that existing namespaced policies must be mutated by the mapping
+policy. Cluster Operators must trigger an update for their changed namespaced
+policies.
+
+## Policy metadata
+
+Each policy is annotated with metadata. Add a new policy metadata annotation
+that contains a list of allowed host capabilities. For example:
+
+```yaml
+# metadata.yml
+annotations:
+  io.kubewarden.policy.allowedHostCapabilities:
+    - kubernetes/can_i
+```
+
+The semantics of this new annotation are the same as for the
+`allowedHostCapabilities` field in `policies.yaml`.
+
+
+## Optional Mapping ClusterAdmissionPolicy
 
 To map the Namespaces of the namespaced policies to secure PolicyServers, we
-provide a new ClusterAdmissionPolicy, named `map-ns-to-policyservers`, installed
-by default.
+provide a new ClusterAdmissionPolicy, named `map-ns-to-policyservers` that
+Cluster Operators may choose to install.
 
 This is just one possible mapping policy, Cluster Operators could deploy their
 own using other schemes (e.g: using LabelSelectors for the mapping, etc).
@@ -304,45 +345,6 @@ metadata:
   labels:
     kubewarden.io/policy-server: my-app-policies
 ```
-
-## Helm Charts
-
-By default, our PolicyServer `default`, will allow no host capability calls.
-This is secure by default, backwards-incompatible and breaks upgrades.
-
-Cluster Operators wishing to keep the old behavior must explicitly allow
-a list of host capabilities (or `*`) using a new Value of the 
-`kubewarden-defaults` Helm chart,
-`.Values.policyServer.allowedHostCapabilities`, which sets the PolicyServer
-`spec.allowedHostCapabilities` for the `default` PolicyServer.
-
-## Upgrade scenario
-
-By default, existing namespaced policies will not be allowed any host
-capability calls, which is backwards-incompatible.
-
-Cluster Operators must configure their own PolicyServers and a mapping policy,
-or set `.Values.policyServer.allowedHostCapabilities` to `*` for the old
-insecure behavior.
-
-We must note that existing namespaced policies must be mutated by the mapping
-policy. Cluster Operators must trigger an update for their changed namespaced
-policies.
-
-## Policy metadata
-
-Each policy is annotated with metadata. Add a new policy metadata annotation
-that contains a list of allowed host capabilities. For example:
-
-```yaml
-# metadata.yml
-annotations:
-  io.kubewarden.policy.allowedHostCapabilities:
-    - kubernetes/can_i
-```
-
-The semantics of this new annotation are the same as for the
-`allowedHostCapabilities` field in `policies.yaml`.
 
 ## Kwctl
 
