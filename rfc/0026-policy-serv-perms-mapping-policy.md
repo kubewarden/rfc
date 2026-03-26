@@ -91,17 +91,6 @@ specification](https://docs.kubewarden.io/reference/spec/host-capabilities/intro
 
 We will use these function paths to uniquely refer to capabilities.
 
-We will accept partial paths to these functions calls: if `oci/v2` is
-provided, that will refer to all API calls under that namespace, for example,
-this includes `oci/v2/verify`  or
-`oci/v2/oci_manifest_config`. This is safe to implement since we control
-the list of function calls.
-
-An exception is the `kubernetes/*` calls that are already gated by expecting a
-list of context-aware resources, passed via a `spec.contextAwareResources`,
-since namespaced policies' CRDs don't include that specification field for now,
-see [future work].
-
 ### List of host capability calls
 
 #### OCI:
@@ -138,15 +127,23 @@ cluster-wide policies, defer to the policy `spec.contextAwareResources`.
 
 Add a new specification field to the PolicyServer CRD, `spec.allowedHostCapabilities`.
 Optional. Array of strings. Contains a list of host capability API
-calls allowed in the policy-server Deployment. Gets validated against a known
-valid list of host capability calls. Defaults to allowing all calls with `[all]`,
-which is backwards-compatible with users' PolicyServers. The namespaced policies
-get mapped to our `default-namespaced-policies` PolicyServer, so they will not
-get permissions to all capabilities.
+calls allowed in the policy-server Deployment. Gets validated against the known
+list of host capability calls.
 
-The new `spec.allowedHostCapabilities` accepts as element an entry `all`. If
-that's the case, it should be the only element. If provided, all host capability
-API calls are allowed.
+Its value mimics the format of Dynamic Admission Controller [match
+rules](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#matching-requests-rules),
+that is:
+
+- `*`: Allow all calls, backwards-compatible.
+- `oci/*`: allows all the OCI host capabilities, regardless of their version.
+- `oci/v2/*`: allows all the OCI capabilities of v2.
+- `oci*`: syntax not valid.
+- `oci/v1/oci_*`: syntax not valid.
+
+An exception is the `kubernetes/*` calls that are already gated by expecting a
+list of context-aware resources, passed via a `spec.contextAwareResources`,
+since namespaced policies' CRDs don't include that specification field for now,
+see [future work].
 
 ## Adm Controller
 
@@ -154,7 +151,7 @@ The Adm Controller uses the new PolicyServer spec field
 `spec.allowedHostCapabilities` when reconciling the `policies.yaml` ConfigMap
 for the policy-server:
 
-- If `spec.allowedHostCapabilities` contains `all`, the policies listed in the
+- If `spec.allowedHostCapabilities` contains `*`, the policies listed in the
 `policies.yaml` get their `allowedContextAware` set to `{}` (empty object),
 allowing all host calls for each policy. This provides the functionality before
 this RFC.
@@ -237,8 +234,7 @@ pod-image-signatures: # policy group
   message: "The group policy is rejected."
 ```
 
-
-## Optional mapping ClusterAdmissionPolicy
+## Mapping ClusterAdmissionPolicy
 
 To map the Namespaces of the namespaced policies to secure PolicyServers, we
 provide a new ClusterAdmissionPolicy, named `map-ns-to-policyservers`, installed
@@ -315,7 +311,7 @@ By default, our PolicyServer `default`, will allow no host capability calls.
 This is secure by default, backwards-incompatible and breaks upgrades.
 
 Cluster Operators wishing to keep the old behavior must explicitly allow
-a list of host capabilities (or `all`) using a new Value of the 
+a list of host capabilities (or `*`) using a new Value of the 
 `kubewarden-defaults` Helm chart,
 `.Values.policyServer.allowedHostCapabilities`, which sets the PolicyServer
 `spec.allowedHostCapabilities` for the `default` PolicyServer.
@@ -326,7 +322,7 @@ By default, existing namespaced policies will not be allowed any host
 capability calls, which is backwards-incompatible.
 
 Cluster Operators must configure their own PolicyServers and a mapping policy,
-or set `.Values.policyServer.allowedHostCapabilities` to `all` for the old
+or set `.Values.policyServer.allowedHostCapabilities` to `*` for the old
 insecure behavior.
 
 We must note that existing namespaced policies must be mutated by the mapping
@@ -417,7 +413,7 @@ Mitigation:
 
 UX becomes a bit more complex. Cluster Operators that don't want low-privileged
 or unprivileged users with permissions to deploy namespaced policies can
-opt-out by setting PolicyServers' `spec.allowedHostCapabilities` to `all`.
+opt-out by setting PolicyServers' `spec.allowedHostCapabilities` to `*`.
 
 # Alternatives
 
