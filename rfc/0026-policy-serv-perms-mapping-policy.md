@@ -259,20 +259,6 @@ We must note that existing namespaced policies must be mutated by the mapping
 policy. Cluster Operators must trigger an update for their changed namespaced
 policies.
 
-## Policy metadata
-
-Each policy is annotated with metadata. Add a new policy metadata annotation
-that contains a list of allowed host capabilities. For example:
-
-```yaml
-# metadata.yml
-annotations:
-  io.kubewarden.policy.allowedHostCapabilities:
-    - kubernetes/can_i
-```
-
-The semantics of this new annotation are the same as for the
-`allowedHostCapabilities` field in `policies.yaml`.
 
 
 ## Optional Mapping ClusterAdmissionPolicy
@@ -457,6 +443,30 @@ network permissions when making networking queries, etc.
 
 This is a backwards-incompatible change. There's better approaches, like this
 RFC.
+
+## Policy metadata
+
+Each policy is annotated with metadata. Add a new policy metadata annotation
+that contains a list of allowed host capabilities. For example:
+
+```yaml
+# metadata.yml
+annotations:
+  io.kubewarden.policy.allowedHostCapabilities:
+    - kubernetes/can_i
+```
+
+The semantics of this new annotation are the same as for the
+`allowedHostCapabilities` field in `policies.yaml`.
+
+Expand `kwctl scaffold` and `kwctl run` so they take into
+account the new metadata annotation to scaffold CRs and run the policy,
+respectively.
+
+Problem: 
+This creates contention when reconciling the `policies.yaml`: Should the Adm Controller
+use the Policy metadata, or the PolicyServer `spec.allowedHostCapabilities`?
+
 
 # Future work
 
