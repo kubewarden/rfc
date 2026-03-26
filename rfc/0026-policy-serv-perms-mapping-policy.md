@@ -240,7 +240,8 @@ pod-image-signatures: # policy group
   message: "The group policy is rejected."
 ```
 
-## Mapping ClusterAdmissionPolicy
+
+## Optional mapping ClusterAdmissionPolicy
 
 To map the Namespaces of the namespaced policies to secure PolicyServers, we
 provide a new ClusterAdmissionPolicy, named `map-ns-to-policyservers`, installed
@@ -313,35 +314,27 @@ metadata:
 
 ## Helm Charts
 
-We deploy our PolicyServer `default` with full permissions for cluster-wide
-policies.
+By default, our PolicyServer `default`, will allow no host capability calls.
+This is secure by default, backwards-incompatible and breaks upgrades.
 
-We deploy a new PolicyServer `for-namespaced-policies` with as restrictive
-permissions as possible: zero allowed host capabilities.
-Its permissions are optionally configurable via `kubewarden-defaults` Helm
-chart values.
-
-We deploy a mutating ClusterAdmissionPolicy `map-ns-to-policyservers` with the
-following settings:
-
-```yaml
-# settings of mapping policy
-settings:
-  defaultPolicyServer: default-namespaced-policies # default catch-all
-```
-
-We allow users to disable this policy or edit the policy settings via
-`kubewarden-defaults` Helm chart Values.
-
-We expect Cluster Operators to configure their own PolicyServers in accordance
-with their needs.
+Cluster Operators wishing to keep the old behavior must explicitly allow
+a list of host capabilities (or `all`) using a new Value of the 
+`kubewarden-defaults` Helm chart,
+`.Values.policyServer.allowedHostCapabilities`, which sets the PolicyServer
+`spec.allowedHostCapabilities` for the `default` PolicyServer.
 
 ## Upgrade scenario
 
-Existing namespaced policies must be mutated by the mapping policy. For that,
-we must trigger updates of all existing namespaced policies. We can do this by
-adding a post-install hook that waits for the mapping policy to be active, then
-updates the generation of the existing namespaced policies.
+By default, existing namespaced policies will not be allowed any host
+capability calls, which is backwards-incompatible.
+
+Cluster Operators must configure their own PolicyServers and a mapping policy,
+or set `.Values.policyServer.allowedHostCapabilities` to `all` for the old
+insecure behavior.
+
+We must note that existing namespaced policies must be mutated by the mapping
+policy. Cluster Operators must trigger an update for their changed namespaced
+policies.
 
 ## Policy metadata
 
