@@ -149,23 +149,19 @@ see [future work].
 
 The Adm Controller uses the new PolicyServer spec field
 `spec.allowedHostCapabilities` when reconciling the `policies.yaml` ConfigMap
-for the policy-server:
+for the policy-server.
 
-- If `spec.allowedHostCapabilities` contains `*`, the policies listed in the
-`policies.yaml` get their `allowedContextAware` set to `{}` (empty object),
-allowing all host calls for each policy. This provides the functionality before
-this RFC.
-
+For namespaced policies:
+- If `spec.allowedHostCapabilities` contains `*`, the namespaced policies
+  listed in the `policies.yaml` get their `allowedContextAware` set to `{}`
+  (empty object), allowing all host calls for each policy. This provides the
+  functionality before this RFC.
 - If `spec.allowedHostCapabilities` is a list (empty, or with elements), the
-Controller sets the policies `allowedContextAware` key with it, giving
-them zero allowed calls (empty list), or those specified in the list, verified
-against the know list of available calls.
+  Controller sets the namespaced policies `allowedContextAware` key with it,
+  giving them zero allowed calls (empty list), or those specified in the list,
+  expanded if using *, verified against the know list of available calls.
 
-The Controller doesn't diferentiate between namespaced or clusterwide policies
-when populating the `policies.yaml` ConfigMap: the allowed host calls
-are applied to all policies. We expect PolicyServers to be dedicated to
-namespaced policies, and configured as such, with general PolicyServers that are
-for cluster-wide policies to lack their `spec.allowedHostCapabilities`.
+Cluster-wide policies get all `allowedContextAware` to `{}` (all allowed).
 
 ## policy-server binary
 
@@ -213,12 +209,11 @@ namespaced-prod-unique-service-selector: # in prod ns
   allowedHostCapabilities:
   - kubernetes/get_resource
   - kubernetes/list_resources_all
-pod-image-signatures: # policy group
+pod-image-signatures: # ClusterPolicyGroup, all allowed
   policies:
     sigstore_gh_action:
       module: ghcr.io/kubewarden/policies/verify-image-signatures:v0.2.8
-      allowedHostCapabilities:
-        - oci/v2/verify
+      allowedHostCapabilities: {} # could be missing
       settings:
         signatures:
           - image: "*"
