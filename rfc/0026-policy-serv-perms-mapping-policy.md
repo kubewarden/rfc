@@ -151,23 +151,26 @@ The Adm Controller uses the new PolicyServer spec field
 `spec.allowedHostCapabilities` when reconciling the `policies.yaml` ConfigMap
 for the policy-server.
 
-For namespaced policies:
-- If `spec.allowedHostCapabilities` contains `*`, the namespaced policies
-  listed in the `policies.yaml` get their `allowedContextAware` set to `{}`
-  (empty object), allowing all host calls for each policy. This provides the
-  functionality before this RFC.
-- If `spec.allowedHostCapabilities` is a list (empty, or with elements), the
-  Controller sets the namespaced policies `allowedContextAware` key with it,
-  giving them zero allowed calls (empty list), or those specified in the list,
-  expanded if using *, verified against the know list of available calls.
+The format of the `policies.yaml` configuration file is described in the next section. Suffice to say, it will be extended to mention, on a per-policy basis, which host capabilities are granted to the policy.
 
-Cluster-wide policies get all `allowedContextAware` to `{}` (all allowed).
+When reconciling a namespaced policy, the controller will:
+- determine over which Policy Server the policy is scheduled
+- obtain the list of host capabilities that this instance exposes to namespaced policies (as stated on its CRD by the cluster admin)
+- copy the list of capabilities into the policy configuration entry
+
+That implies that all the namespaced policies running on a Policy Server will be granted access to the same set of host capabilities; even if they
+don't actually make use of them.
+
+When reconciling a cluster wide policy, the controller will grant access
+to all the host capabilities. It will do that by putting a `*` value.
+
+In the future we can revisit this approach by adding a `hostCapabilities` attribute to the CRDs of the cluster wide policies. This would allow the
+cluster admins to give policies fine grained access to the host capabilities.
 
 ## policy-server binary
 
 Currently, the policy-server binary reads a `policies.yml` file with the
-`--policies policies.yml` flag. The policies names contain information
-if they are namespaced. Its format is as follows:
+`--policies policies.yml` flag. The configuration file looks like that:
 
 ```yaml
 # policies.yaml
@@ -192,28 +195,36 @@ pod-image-signatures: # policy group
   message: "The group policy is rejected."
 ```
 
-The policy-server binary will accept a new `allowedHostCapabilities` key for each
-policy listed there. This includes the policies in the policy groups.
+We're going to extend the configuration entries of the file by adding
+a new key named `host_capabilities`. This contains the list of host
+capabilities that are granted to the policy.
 
-This new `allowedHostCapabilities` can be set to:
-- An empty object (`{}`: the policy will be allowed all host capability calls.
-- An empty list (`[]`): no allowed host capability calls.
-- A list of elems, with some host capability calls.
+The elements of the `host_capabilities` list follow the same conventions
+used when specifying the allowed host capabilities inside of the PolicyServer spec:
+
+- `[]`: no host capability is allowed. That's the default value
+- `[ '*' ]`: all host capabilities are allowed
+- `[ 'foo', 'bar' ]: only the `foo` and `bar` capabilities are allowed
+- `['oci/v2/*', 'bar']: all the `ovi/v2` capabilities, plus the `bar` one are allowed
 
 Example:
 
 ```yaml
 # policies.yaml
-namespaced-prod-unique-service-selector: # in prod ns
+# policies.yaml
+# a cluster policy that has access to k8s resources
+prod-unique-service-selector:
   module: registry://ghcr.io/kubewarden/policies/unique-service-selector-policy:v1.0.10
-  allowedHostCapabilities:
-  - kubernetes/get_resource
-  - kubernetes/list_resources_all
-pod-image-signatures: # ClusterPolicyGroup, all allowed
+  host_capabilities:
+  - *
+namespaced-image-signatures:
   policies:
     sigstore_gh_action:
       module: ghcr.io/kubewarden/policies/verify-image-signatures:v0.2.8
-      allowedHostCapabilities: {} # could be missing
+      host_capabilities:
+      - v2/verify
+      - v1/oci_manifes_digest
+      - v1/oci_manifest
       settings:
         signatures:
           - image: "*"
@@ -260,19 +271,15 @@ For `kwctl run`, expand the support for the session file used with the
 `--replay-host-capabilities-interactions` flag, so that the session file
 records all host capability calls.
 
-## Optional Mapping ClusterAdmissionPolicy
+## Control scheduling of namespaced policies
 
-To map the Namespaces of the namespaced policies to secure PolicyServers, we
-provide a new ClusterAdmissionPolicy, named `map-ns-to-policyservers` that
-Cluster Operators may choose to install.
+A cluster administrator might want to retain full control over the
+scheduling of namespaced policies to prevent users from scheduling
+their policies over Policy Server instances exposing a broad list of
+host capabilities.
 
-This is just one possible mapping policy, Cluster Operators could deploy their
-own using other schemes (e.g: using LabelSelectors for the mapping, etc).
-
-This policy applies to namespaced policies and mutates their
-`spec.policyServer` to match the provided settings. These PolicyServers may or
-not be already created or ready; in that case the policies will stay in
-`scheduled` status with no harm done.
+To achieve that, we will provide a reference policy that mutates the
+the `spec.policyServer` field of namespaced policies.
 
 The new policy will look like this:
 
@@ -314,21 +321,12 @@ settings:
   defaultPolicyServer: default-namespaced-policies
 ```
 
-Usually Namespace tenants don't have privileges to create/edit Namespaces.
-Cluster Operators can use Labels of the Namespace: the policy makes a
-context-aware call, finds that label and then uses the label as the name of the
-PolicyServer to be used.
+This policy assumes regular cluster users do not have RBAC privileges
+to create/update `Namespace` resources.
 
-For example, in the following Namespace, its namespaced policies will be
-scheduled in the PolicyServer named `my-app-policies`:
-```yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: my-app
-  labels:
-    kubewarden.io/policy-server: my-app-policies
-```
+This is consistent with common security practices, for example to prevent
+users from removing PSA profiles from the namespace where they schedule
+their workloads.
 
 ## Kwctl
 
@@ -475,7 +473,7 @@ use the Policy metadata, or the PolicyServer `spec.allowedHostCapabilities`?
 Contrary to the namespaced policies, which can't define their own limitations,
 the cluster-wide can, as they are only accessible to Cluster Operators.
 
-Expand the cluster-wide policies CRDs to include `spec.allowedHostCapabilities`.
+Expand the cluster-wide policies CRDs to include `spec.hostCapabilities`.
 
 The mechanism would be the same: the controller filling correctly the
 `policies.yaml`, which gets server to the policy-server binary.
@@ -487,7 +485,7 @@ Add new `spec.contextAwareResources` field to namespaced policies, analogous to
 the same field for cluster-wide policies.
 
 This means that policies can query for non-namespaced resources. We should only
-allow querying for namesapced resources in their own namespace. And even then,
+allow querying for namespaced resources in their own namespace. And even then,
 care should be taken as users may not have RBAC for such operations, but the
 PolicyServers used by the policy may have enough RBAC, and this would be a form
 of data exfiltration.
