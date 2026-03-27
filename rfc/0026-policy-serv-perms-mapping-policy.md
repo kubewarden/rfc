@@ -305,7 +305,6 @@ spec:
 The mapping is used by the policy settings:
 
 ```yaml
-# ConfigMap policy-server-mapping
 settings:
   # Label name to read from Namespace. Its value will be used as the designated
   # PolicyServer for that Namespace.
