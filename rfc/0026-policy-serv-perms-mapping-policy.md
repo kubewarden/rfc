@@ -78,8 +78,7 @@ Documentation of policies that depend on host capability calls must be updated t
 mention those calls. 
 
 Namespaced policies don't have a `spec.contextAwareResources`, therefore no
-access to Kubernetes resources. This stays the same for now, see
-[future work].
+access to Kubernetes resources. This stays the same.
 
 ## Allowed host capability calls
 
@@ -142,8 +141,7 @@ that is:
 
 An exception is the `kubernetes/*` calls that are already gated by expecting a
 list of context-aware resources, passed via a `spec.contextAwareResources`,
-since namespaced policies' CRDs don't include that specification field for now,
-see [future work].
+since namespaced policies' CRDs don't include that specification field.
 
 ## Adm Controller
 
@@ -462,47 +460,6 @@ respectively.
 Problem: 
 This creates contention when reconciling the `policies.yaml`: Should the Adm Controller
 use the Policy metadata, or the PolicyServer `spec.allowedHostCapabilities`?
-
-
-# Future work
-
-[future work]: #future-work
-
-## Add `spec.allowedHostCapabilities` to cluster-wide policies
-
-Contrary to the namespaced policies, which can't define their own limitations,
-the cluster-wide can, as they are only accessible to Cluster Operators.
-
-Expand the cluster-wide policies CRDs to include `spec.hostCapabilities`.
-
-The mechanism would be the same: the controller filling correctly the
-`policies.yaml`, which gets server to the policy-server binary.
-
-## Add `spec.contextAwareResources` to namespaced policies
-
-
-Add new `spec.contextAwareResources` field to namespaced policies, analogous to
-the same field for cluster-wide policies.
-
-This means that policies can query for non-namespaced resources. We should only
-allow querying for namespaced resources in their own namespace. And even then,
-care should be taken as users may not have RBAC for such operations, but the
-PolicyServers used by the policy may have enough RBAC, and this would be a form
-of data exfiltration.
-
-Right now, we have the `policies.yml` convention of naming policies as:
-```
-{namespaced-<ns name>-}<policy name>`
-```
-
-We could use that to obtain the Namespace that the policy can read from,
-or extend `policies.yml` to annotate the policy Namespace if needed.
-
-This would allow a new family of policies. For example, the
-`unique-service-selector-policy` works by checking all Services within the same
-Namespace for uniqueness, with a `list_services(service.metadata.namespace)`
-(Services with the same selectors are only considered duplicates within the
-same Namespace).
 
 # Unresolved questions
 
