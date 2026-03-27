@@ -409,9 +409,12 @@ annotations:
 The semantics of this new annotation are the same as for the
 `namespacedPoliciesCapabilities` field in `policies.yaml`.
 
-Expand `kwctl scaffold` and `kwctl run` so they take into
-account the new metadata annotation to scaffold CRs and run the policy,
-respectively.
+Expand `kwctl scaffold` to print a big warning (on stderr) that Cluster
+Operators should configure their PolicyServer to expose the listed host
+capabilities.
+
+Expand `kwctl run`, `kwctl bench` to accept a custom list of host capabilities
+when running the policy, just as we do for contextAwareResources.
 
 Problem: 
 This creates contention when reconciling the `policies.yaml`: Should the Adm Controller
