@@ -124,7 +124,7 @@ cluster-wide policies, defer to the policy `spec.contextAwareResources`.
 
 ## PolicyServer Custom Resource
 
-Add a new specification field to the PolicyServer CRD, `spec.allowedHostCapabilities`.
+Add a new specification field to the PolicyServer CRD, `spec.namespacedPoliciesCapabilities`.
 Optional. Array of strings. Contains a list of host capability API
 calls allowed in the policy-server Deployment. Gets validated against the known
 list of host capability calls.
@@ -146,7 +146,7 @@ since namespaced policies' CRDs don't include that specification field.
 ## Adm Controller
 
 The Adm Controller uses the new PolicyServer spec field
-`spec.allowedHostCapabilities` when reconciling the `policies.yaml` ConfigMap
+`spec.namespacedPoliciesCapabilities` when reconciling the `policies.yaml` ConfigMap
 for the policy-server.
 
 The format of the `policies.yaml` configuration file is described in the next section. Suffice to say, it will be extended to mention, on a per-policy basis, which host capabilities are granted to the policy.
@@ -209,7 +209,6 @@ Example:
 
 ```yaml
 # policies.yaml
-# policies.yaml
 # a cluster policy that has access to k8s resources
 prod-unique-service-selector:
   module: registry://ghcr.io/kubewarden/policies/unique-service-selector-policy:v1.0.10
@@ -241,14 +240,15 @@ namespaced-image-signatures:
 
 ## Helm Charts
 
-By default, our PolicyServer `default`, will allow no host capability calls.
+By default, our PolicyServer `default`, will allow no host capability calls for
+namespaced policies.
 This is secure by default, backwards-incompatible and breaks upgrades.
 
 Cluster Operators wishing to keep the old behavior must explicitly allow
 a list of host capabilities (or `*`) using a new Value of the 
 `kubewarden-defaults` Helm chart,
-`.Values.policyServer.allowedHostCapabilities`, which sets the PolicyServer
-`spec.allowedHostCapabilities` for the `default` PolicyServer.
+`.Values.policyServer.namespacedPoliciesCapabilities`, which sets the PolicyServer
+`spec.namespacedPoliciesCapabilities` for the `default` PolicyServer.
 
 ## Upgrade scenario
 
@@ -256,7 +256,7 @@ By default, existing namespaced policies will not be allowed any host
 capability calls, which is backwards-incompatible.
 
 Cluster Operators must configure their own PolicyServers and a mapping policy,
-or set `.Values.policyServer.allowedHostCapabilities` to `*` for the old
+or set `.Values.policyServer.namespacedPoliciesCapabilities` to `*` for the old
 insecure behavior.
 
 We must note that existing namespaced policies must be mutated by the mapping
@@ -357,7 +357,7 @@ Mitigation:
 
 UX becomes a bit more complex. Cluster Operators that don't want low-privileged
 or unprivileged users with permissions to deploy namespaced policies can
-opt-out by setting PolicyServers' `spec.allowedHostCapabilities` to `*`.
+opt-out by setting PolicyServers' `spec.namespacedPoliciesCapabilities` to `*`.
 
 # Alternatives
 
@@ -408,12 +408,12 @@ that contains a list of allowed host capabilities. For example:
 ```yaml
 # metadata.yml
 annotations:
-  io.kubewarden.policy.allowedHostCapabilities:
+  io.kubewarden.policy.namespacedPoliciesCapabilities:
     - kubernetes/can_i
 ```
 
 The semantics of this new annotation are the same as for the
-`allowedHostCapabilities` field in `policies.yaml`.
+`namespacedPoliciesCapabilities` field in `policies.yaml`.
 
 Expand `kwctl scaffold` and `kwctl run` so they take into
 account the new metadata annotation to scaffold CRs and run the policy,
@@ -421,7 +421,7 @@ respectively.
 
 Problem: 
 This creates contention when reconciling the `policies.yaml`: Should the Adm Controller
-use the Policy metadata, or the PolicyServer `spec.allowedHostCapabilities`?
+use the Policy metadata, or the PolicyServer `spec.namespacedPoliciesCapabilities`?
 
 # Unresolved questions
 
