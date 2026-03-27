@@ -263,12 +263,6 @@ We must note that existing namespaced policies must be mutated by the mapping
 policy. Cluster Operators must trigger an update for their changed namespaced
 policies.
 
-## Kwctl
-
-For `kwctl run`, expand the support for the session file used with the
-`--replay-host-capabilities-interactions` flag, so that the session file
-records all host capability calls.
-
 ## Control scheduling of namespaced policies
 
 A cluster administrator might want to retain full control over the
