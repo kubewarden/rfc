@@ -124,10 +124,11 @@ cluster-wide policies, defer to the policy `spec.contextAwareResources`.
 
 ## PolicyServer Custom Resource
 
-Add a new specification field to the PolicyServer CRD, `spec.namespacedPoliciesCapabilities`.
-Optional. Array of strings. Contains a list of host capability API
-calls allowed in the policy-server Deployment. Gets validated against the known
-list of host capability calls.
+Add a new specification field to the PolicyServer CRD,
+`spec.namespacedPoliciesCapabilities`. Optional. Array of strings. Contains a
+list of host capability API calls allowed in the policy-server Deployment for
+namespaced policies. Gets validated against the known list of host capability
+calls.
 
 Its value mimics the format of Dynamic Admission Controller [match
 rules](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#matching-requests-rules),
@@ -149,20 +150,25 @@ The Adm Controller uses the new PolicyServer spec field
 `spec.namespacedPoliciesCapabilities` when reconciling the `policies.yaml` ConfigMap
 for the policy-server.
 
-The format of the `policies.yaml` configuration file is described in the next section. Suffice to say, it will be extended to mention, on a per-policy basis, which host capabilities are granted to the policy.
+The format of the `policies.yaml` configuration file is described in the next
+section. Suffice to say, it will be extended to mention, on a per-policy basis,
+which host capabilities are granted to the policy.
 
 When reconciling a namespaced policy, the controller will:
 - determine over which Policy Server the policy is scheduled
-- obtain the list of host capabilities that this instance exposes to namespaced policies (as stated on its CRD by the cluster admin)
+- obtain the list of host capabilities that this instance exposes to namespaced
+  policies (as stated on its CRD by the cluster admin)
 - copy the list of capabilities into the policy configuration entry
 
-That implies that all the namespaced policies running on a Policy Server will be granted access to the same set of host capabilities; even if they
-don't actually make use of them.
+That implies that all the namespaced policies running on a Policy Server will
+be granted access to the same set of host capabilities; even if they don't
+actually make use of them.
 
 When reconciling a cluster wide policy, the controller will grant access
 to all the host capabilities. It will do that by putting a `*` value.
 
-In the future we can revisit this approach by adding a `hostCapabilities` attribute to the CRDs of the cluster wide policies. This would allow the
+In the future we can revisit this approach by adding a `hostCapabilities`
+attribute to the CRDs of the cluster wide policies. This would allow the
 cluster admins to give policies fine grained access to the host capabilities.
 
 ## policy-server binary
