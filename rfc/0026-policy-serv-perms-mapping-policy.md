@@ -276,55 +276,17 @@ scheduling of namespaced policies to prevent users from scheduling
 their policies over Policy Server instances exposing a broad list of
 host capabilities.
 
-To achieve that, we will provide a reference policy that mutates the
-the `spec.policyServer` field of namespaced policies.
+To achieve that, we will provide a reference policy. It will be a mutating
+cluster-wide policy that processes `AdmissionPolicy` and `AdmissionPolicyGroup`
+resources and mutates the `spec.policyServer` field of those namespaced
+policies.
 
-The new policy will look like this:
+The policy will determine the namespace where the
+`AdmissionPolicy`/`AdmissionPolicyGroup` is defined and then it will read the
+`admission.kubewarden.io/policy-server` label from the `Namespace` resource.
 
-```yaml
-# policy.yaml
-apiVersion: policies.kubewarden.io/v1
-kind: ClusterAdmissionPolicy
-metadata:
-  name: map-ns-to-policyservers
-spec:
-  module: registry://ghcr.io/kubewarden/policies/map-ns-to-policyservers:v0.1.0
-  mode: protect
-  mutating: true
-  contextAwareResources:
-    - apiVersion: v1
-      kind: Namespace # to read Labels from Namespaces
-  rules:
-    - apiGroups: ["policies.kubewarden.io"]
-      apiVersions: ["*"]
-      resources: ["AdmissionPolicy", "AdmissionPolicyGroup"]
-      operations:
-        - CREATE
-        - UPDATE
-  settings:
-    # see mapping RFC section
-```
-
-### Mapping Namespace-to-PolicyServer
-
-The mapping is used by the policy settings:
-
-```yaml
-settings:
-  # Label name to read from Namespace. Its value will be used as the designated
-  # PolicyServer for that Namespace.
-  # The Value must be a valid Kubernetes resource name (DNS-1123 label)
-  namespaceLabelToPolicyServerName: kubewarden.io/policy-server
-  # Default PolicyServer, in case the label is not set in the Namespace
-  defaultPolicyServer: default-namespaced-policies
-```
-
-This policy assumes regular cluster users do not have RBAC privileges
-to create/update `Namespace` resources.
-
-This is consistent with common security practices, for example to prevent
-users from removing PSA profiles from the namespace where they schedule
-their workloads.
+The value of this label will be used to enforce the Policy Server to be used by
+the policy.
 
 ## Kwctl
 
