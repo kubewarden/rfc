@@ -246,15 +246,16 @@ namespaced-image-signatures:
 
 ## Helm Charts
 
-By default, our PolicyServer `default`, will allow no host capability calls for
-namespaced policies.
-This is secure by default, backwards-incompatible and breaks upgrades.
+The `kubewarden-defaults` Helm chart will gain a new
+`.Values.policyServer.namespacedPoliciesCapabilities`, which sets the
+PolicyServer `spec.namespacedPoliciesCapabilities` for the `default`
+PolicyServer.
 
-Cluster Operators wishing to keep the old behavior must explicitly allow
-a list of host capabilities (or `*`) using a new Value of the 
-`kubewarden-defaults` Helm chart,
-`.Values.policyServer.namespacedPoliciesCapabilities`, which sets the PolicyServer
-`spec.namespacedPoliciesCapabilities` for the `default` PolicyServer.
+By default, our PolicyServer `default`, will allow all host capability calls
+for namespaced policies, with `*`. This is backwards-compatible.
+
+Cluster Operators wishing to reduce the list of host-capability calls must set
+the new value accordingly.
 
 ## Upgrade scenario
 
