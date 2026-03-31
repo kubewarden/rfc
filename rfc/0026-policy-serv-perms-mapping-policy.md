@@ -258,16 +258,16 @@ a list of host capabilities (or `*`) using a new Value of the
 
 ## Upgrade scenario
 
-By default, existing namespaced policies will not be allowed any host
-capability calls, which is backwards-incompatible.
+By default, existing namespaced policies will be allowed all host
+capability calls, which is backwards-compatible.
 
 Cluster Operators must configure their own PolicyServers and a mapping policy,
-or set `.Values.policyServer.namespacedPoliciesCapabilities` to `*` for the old
-insecure behavior.
+or set `.Values.policyServer.namespacedPoliciesCapabilities` to `[]` to not
+allow any host capability calls.
 
-We must note that existing namespaced policies must be mutated by the mapping
-policy. Cluster Operators must trigger an update for their changed namespaced
-policies.
+We must note that if done so, existing namespaced policies must be mutated by
+the mapping policy. Cluster Operators must trigger an update for their changed
+namespaced policies.
 
 ## Control scheduling of namespaced policies
 
