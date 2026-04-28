@@ -3,7 +3,7 @@
 | Feature Name | Policy Server permissions with mapping policy   |
 | Start Date   | March 11th, 2026                                |
 | Category     | Context aware policies                          |
-| RFC PR       | [PR](TODO)                                      |
+| RFC PR       | [PR](https://github.com/kubewarden/rfc/pull/55)                                      |
 | State        | **ACCEPTED**                                    |
 
 # Summary
