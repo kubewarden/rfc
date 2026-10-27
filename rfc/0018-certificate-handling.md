@@ -2,7 +2,7 @@
 | :----------- | :----------------------------------------------- |
 | Feature Name | Certificate Handling                             |
 | Start Date   | Aug 11 2023                                      |
-| Update Date  | 2024/09/05                                       |
+| Update Date  | 2026/10/27                                       |
 | Category     | enhancement, feature                             |
 | RFC PR       | [#24](https://github.com/kubewarden/rfc/pull/24) |
 | State        | **ACCEPTED**                                     |
@@ -102,6 +102,48 @@ certificates are managed for the `kubewarden-controller`. Going forward, the
 Helm chart installation and  the controller will take care of bootstrapping the
 certificates, while the `kubewarden-controller` will rotate them when they are about to expire.
 
+The secret `kubewarden-ca` is the source of truth for every certificate and
+for every `clientConfig.caBundle` of the stack:
+
+- The root CA signs every other certificate. The controller replaces each
+  certificate that the root CA in `kubewarden-ca` did not sign.
+- The CA bundle is `ca.crt` of `kubewarden-ca`, followed by `old-ca.crt` if the
+  secret holds it. `old-ca.crt` is the previous root CA, after a rotation of the
+  root CA. Every component that writes a `clientConfig.caBundle` writes this
+  bundle, and nothing else.
+- Each webhook configuration has one owner of its `clientConfig.caBundle`. The
+  owner watches `kubewarden-ca` and writes the bundle when it changes.
+
+## Certificates of the stack
+
+| Certificate | Secret | Created by | Valid for | Used by |
+| :---------- | :----- | :--------- | :-------- | :------ |
+| Root CA | `kubewarden-ca` | Helm chart | 10 years | The API server and the audit scanner use it to check the server certificates. With mTLS, the Policy Servers use it to check the client certificate of the audit scanner. |
+| `kubewarden-controller` webhook server | `kubewarden-webhook-server-cert` | Helm chart | 1 year | The webhook server of the controller, for the Kubewarden CRDs |
+| Policy Server | `policy-server-<name>` | `kubewarden-controller`, when the `PolicyServer` is created | 1 year | The Policy Server, for the policies that it hosts |
+| Audit scanner client | `kubewarden-audit-scanner-client-cert` | Helm chart | 1 year | The audit scanner. The Policy Servers check it only when mTLS is enabled. |
+
+All certificates use the ECDSA P-256 curve algorithm for the keys. The
+`kubewarden-controller` rotates all of them.
+
+## Ownership of the CA bundles
+
+| Resource | Owner of the first value | Owner of the current value |
+| :------- | :----------------------- | :------------------------- |
+| The three secrets of the Helm chart | Helm chart | Certificates reconciliation loop |
+| The secret of each Policy Server | Policy Server reconciliation loop | Certificates reconciliation loop |
+| `clientConfig.caBundle` of the two webhook configurations of the `kubewarden-controller` | Helm chart | Webhook CA bundle reconciliation loop |
+| `clientConfig.caBundle` of the webhook configuration of each policy | Policy types reconciliation loops | Policy types reconciliation loops |
+
+The Helm chart owns only the first value, because a chart runs only at render
+time. It cannot react to a change in the cluster. Without cluster access, for
+example under `helm template` or in the repo-server of Argo CD, `lookup`
+returns nothing, and each render holds a new random root CA. The webhook CA
+bundle reconciliation loop repairs a webhook configuration that holds such a
+value.
+
+The Certificates reconciliation loop writes no `clientConfig.caBundle`.
+
 ## Possible Scenarios
 
 This section aims to cover the different scenarios. For each one of them we
@@ -113,11 +155,16 @@ to be done.
 The Kubewarden stack has just been installed. The following actions have to be
 done:
 
-- Helm chart generates Certificate Authority(CA) and stores it in a secret
+- Helm chart generates Certificate Authority(CA) and stores it in the secret
+  `kubewarden-ca`
 - Helm chart generates a certificate for the `kubewarden-controller` webhooks,
   signs it with the CA, and stores it in a secret
+- Helm chart generates the client certificate of the audit scanner, signs it
+  with the CA, and stores it in a secret
 - Helm chart uses the CA in the `caBundle` configuration in webhooks to
-  validate CRDs pointing to the `kubewarden-controller`
+  validate CRDs pointing to the `kubewarden-controller`. It sets the annotation
+  `kubewarden.io/inject-ca-from: <namespace>/kubewarden-ca` on these webhook
+  configurations
 - Start the Kubewarden controller webhooks HTTPS server using this certificate.
   The certificate is mounted inside of the Pod
 
@@ -141,18 +188,20 @@ is defined
 A new policy is defined inside the cluster, ensure the following actions are
 done:
 
-- Register the webhook against the Kubernetes API, use our CA in
-  `clientConfig.caBundle`
+- Register the webhook against the Kubernetes API, use the CA bundle of
+  `kubewarden-ca` in `clientConfig.caBundle`
 
 > **Note:** it doesn't matter which Policy Server is going to host the policy.
 > All the Policy Server instances use a certificate that is signed by our CA.
-> Hence we always put our CA in the `clientConfig.caBundle`.
+> Hence we always put the CA bundle of `kubewarden-ca` in the
+> `clientConfig.caBundle`.
 
-### Policy Server and `kubewarden-controller` Certificates Renewed
+### Policy Server, `kubewarden-controller` and Audit Scanner Certificates Renewed
 
 From time to time we need to renew the certificate issued to the
-`kubewarden-controller` and a Policy Server instance. The main reason to
-perform this operation is to ensure the certificates in use do not expire.
+`kubewarden-controller`, a Policy Server instance, and the audit scanner. The
+main reason to perform this operation is to ensure the certificates in use do
+not expire.
 
 To renew a certificate the following actions are needed:
 
@@ -162,13 +211,17 @@ To renew a certificate the following actions are needed:
   within the Pods running the Policy Server or the `kubewarden-controller`.
   Both of these processes will detect the updated certificate file they
   accessed during startup and will refresh their TLS configuration accordingly.
+- The audit scanner runs as a CronJob. Each run starts a new Pod that reads the
+  current certificate.
 
 > **Note:** there's no need to restart the Pods. Since Kubewarden v1.16, Policy
 > Server and `kubewarden-controller` are able to detect changes in the
-> certificate file and reload it at runtime. Also, there's no need to touch the
-> webhook configuration objects related to the policies hosted by the Policy
-> Server. The new certificate is still signed by the same CA, hence nothing has
-> to be changed.
+> certificate file and reload it at runtime. The Policy Server watches the
+> directory of each mounted secret, because the kubelet replaces the files of
+> a mounted secret with a new directory and a symbolic link. Also, there's no
+> need to touch the webhook configuration objects related to the policies
+> hosted by the Policy Server. The new certificate is still signed by the same
+> CA, hence nothing has to be changed.
 
 ### Internal CA changes
 
@@ -176,87 +229,164 @@ The internal CA managed by Kubewarden might be recreated (for example, to avoid
 its expiration). This is the most disruptive event that can happen, especially
 once some policies are deployed.
 
-The following actions have to be performed to renew the internal CA:
+The following actions are done, in this order, to renew the internal CA:
 
-- Generates a new CA certificate
-- Updates the secret storing the CA certificate with the new CA and the old CA
-- Generate a new CA bundle that contains the previous internal CA and the new
-  one
-- For each webhook configuration managed by Kubewarden (meaning all the
-  policies deployed, plus the `kubewarden-controller`):
-  - Update the `clientConfig.caBundle`: ensure it contains the CA bundle
-    created during the previous step
-- For each `PolicyServer` defined:
-  - Generate a new certificate, sign it with the new CA
-  - Update the secret storing the policy server certificate
-- For the `kubewarden-controller`:
-  - Generate a new certificate, sign it with the new CA
-  - Update the secret storing the controller certificate
+1. The Certificates reconciliation loop generates a new CA certificate. It
+   updates the secret `kubewarden-ca`: `ca.crt` holds the new CA, and
+   `old-ca.crt` holds the previous CA.
+2. The owners of the webhook configurations see the change of the secret. Each
+   owner writes the new CA bundle, which contains the new CA and the previous
+   CA, into its webhook configurations:
+   - the Webhook CA bundle reconciliation loop, for the two webhook
+     configurations of the `kubewarden-controller`
+   - the Policy types reconciliation loops, for the webhook configuration of
+     each policy
+3. Before it signs a new server certificate, the Certificates reconciliation
+   loop waits until every webhook configuration that sends requests to that
+   server has the new CA in its `clientConfig.caBundle`. Then:
+   - For each `PolicyServer` defined, it generates a new certificate, signs it
+     with the new CA, and updates the secret storing the policy server
+     certificate
+   - For the `kubewarden-controller`, it generates a new certificate, signs it
+     with the new CA, and updates the secret storing the controller certificate
+4. It generates a new client certificate for the audit scanner and signs it
+   with the new CA. This certificate does not wait, because no webhook
+   configuration checks it.
 
 All certificates generated uses the ECDSA P-256 curve algorithm for the keys.
+
+The order of the steps prevents downtime. No server uses a certificate before
+its webhook configuration trusts the CA that signed it. Until the Pods load
+their new certificates, the API server accepts both the previous and the new
+certificates, because each CA bundle contains both CAs.
+
+The owners write the CA bundle asynchronously, through their own work queues.
+A queued reconcile is not a guarantee that the CA bundle is published. For
+this reason, step 3 reads the webhook configurations and waits for the
+published state. If the CA bundle is not published within 2 minutes, the loop
+keeps the current certificate, which the previous CA in the CA bundle still
+trusts, and tries again at the next check.
 
 The root CA rotation is initiated 60 days before the expiration date. This
 gives plenty of time to ensure all the Policy Server instances and the
 `kubewarden-controller` pods are using a certificate that has been issued by
-the new root CA. 
+the new root CA.
 
 Once the old CA is invalid:
-- Remove the old root CA from the CA bundle
-- For each webhook configuration managed by Kubewarden (meaning all the
-  policies deployed, plus the validating and mutating webhooks defined by the
-  Kubewarden Controller):
-  - Update the `clientConfig.caBundle`: use the freshly computed bundle
-  
+- The Certificates reconciliation loop removes `old-ca.crt` from the secret
+  `kubewarden-ca`
+- The owners of the webhook configurations see the change of the secret, and
+  write the CA bundle with the new CA only
+
 > **Note:** there's no need to restart the Policy Server/kubewarden-controller
 > pods. By that time (60 days passed since the new root CA and their
 > certificates were recreated), they are all using a certificate issued by the
 > new root CA.
 
+With mTLS, the Policy Servers check the client certificates with `ca.crt` of
+`kubewarden-ca` only, not with `old-ca.crt`. After a Policy Server loads the
+new CA, it rejects a client certificate that the previous CA signed. An audit
+scan that runs during the rotation can lose the rest of its results. The next
+run of the audit scanner corrects them. Admission requests are not affected.
+
+### Webhook configuration of the `kubewarden-controller` created again
+
+A GitOps tool, for example Argo CD, renders the Helm chart without cluster
+access. When it creates a webhook configuration of the `kubewarden-controller`
+again, for example after a `Replace` sync, a prune, or a manual deletion, the
+`clientConfig.caBundle` holds a random CA from the render. Then the API server
+cannot call the `kubewarden-controller`.
+
+The following actions are done:
+
+- The Webhook CA bundle reconciliation loop sees the new webhook
+  configuration, because it has the annotation `kubewarden.io/inject-ca-from`
+- It computes the CA bundle of `kubewarden-ca`, and patches the
+  `clientConfig.caBundle` that differs
+
+The repair takes seconds and needs no restart. The loop patches only a
+`clientConfig.caBundle` that differs, so a correct value causes no write, and
+there is no write loop with a GitOps tool that keeps the live value.
+
 ## Controller Bootstrap
 
 Helm chart installation is responsible to create the first root CA. The root CA
-is used to sign the first certificate user by the `kubewarden-controller`. The
-root CA is also used in the `clientConfig.caBundle` of the webhooks used to
-validate the CRDs. The root CA has a validity of 10 years and the certificate
-used by the controller has a validity of 1 year. Both use the ECDSA P-256
-curve  algorithm for the keys. 
+is used to sign the first certificate user by the `kubewarden-controller` and
+the first client certificate of the audit scanner. The root CA is also used in
+the `clientConfig.caBundle` of the webhooks used to validate the CRDs. The root
+CA has a validity of 10 years and the certificates have a validity of 1 year.
+All of them use the ECDSA P-256 curve  algorithm for the keys.
+
+The controller cannot create these first certificates. The API server calls the
+webhooks of the controller as soon as the webhook configurations exist, and the
+webhook server of the controller needs its certificate before it can start.
+The Helm chart is the only component that runs before the controller.
+
+On an upgrade, the Helm chart reads the existing secrets with `lookup`. It
+renders their current data, and builds the `clientConfig.caBundle` from them.
+Thus an upgrade changes no certificate.
 
 ## Reconciliation Loops
 
 This section describes how the `kubewarden-controller` reconciliation loops
-should be arranged. We can split the changes in three different parts: 
+should be arranged. We can split the changes in four different parts:
 
+- New certificates reconciliation loop
+- New webhook CA bundle reconciliation loop
 - Policy Server reconciliation loop changes
 - Policy types reconciliation loop changes
-- New certificates reconciliation loop
-
-The new reconciliation loop has to be added to the `kubewarden-controller` to
-reconcile the certificates used by the whole Kubewarden stack.
 
 ### Certificates Reconciliation Loop
 
-The new added reconciliation loop should check the expiration date of all the
-certificates used by the Kubewarden stack. Actually, this reconciliation loop
-is a runnable added to the controller manager. The runnable starts a ticker
-that verifies validity of the certificates every 12 hours. 
+The new added reconciliation loop checks all the certificates used by the
+Kubewarden stack. This reconciliation loop is a runnable added to the
+controller manager. It runs only on the leader. It checks the certificates when
+the controller starts, and then every 12 hours, with a ticker. If the check at
+startup fails, it makes up to 8 tries in about 4 minutes.
 
-If during the reconciliation loop the root CA is about to expire, that is, 
-the certificate will expire in less than 60 days, the
-reconciliation loop should generate a new root CA, update the secret storing
-the root CA and update the `clientConfig.caBundle` of all the webhook
-configurations. Then it should generate a new certificate for the
-`kubewarden-controller` and all the policy servers deployed in the cluster.
+The loop replaces a certificate when one of these conditions is true:
 
-Also during the reconciliation, if a certificate used by a Policy Server or the
-`kubewarden-controller` is about to expire, the reconciliation loop should
-generate a new certificate, sign it with the root CA and update the secret
-storing the certificate. There is no need to update the webhook configurations,
-since the CA is the same.
+- The certificate expires in less than 60 days.
+- The certificate is already expired.
+- The root CA in `kubewarden-ca` did not sign the certificate.
+
+If the root CA is about to expire, that is, the certificate will expire in less
+than 60 days, the reconciliation loop generates a new root CA and updates the
+secret storing the root CA. Then it generates a new certificate for the
+`kubewarden-controller`, all the policy servers deployed in the cluster, and
+the audit scanner, as described in
+[Internal CA changes](#internal-ca-changes).
+
+Before it signs a new server certificate, the loop waits until the webhook
+configurations that send requests to that server trust the root CA. One budget
+of 2 minutes covers each check. A certificate that cannot be renewed does not
+stop the renewal of the other certificates.
 
 If the old CA stored in the secret with the current CA in use is
-invalid, the reconciliation loop should update the secret, removing the old CA.
-Then it should update the `clientConfig.caBundle` of all webhook configurations
-to contain only the new CA.
+invalid, the reconciliation loop updates the secret, removing the old CA.
+
+The loop writes only secrets. It writes no `clientConfig.caBundle`.
+
+### Webhook CA Bundle Reconciliation Loop
+
+This new controller owns the `clientConfig.caBundle` of the two webhook
+configurations of the `kubewarden-controller`. It watches:
+
+- the `ValidatingWebhookConfiguration` and `MutatingWebhookConfiguration`
+  resources with the annotation `kubewarden.io/inject-ca-from`
+- the secret `kubewarden-ca`, for its creation and for each change of its CA
+  bundle
+
+On each event, it computes the CA bundle of `kubewarden-ca`, and patches each
+`clientConfig.caBundle` that differs. It uses an optimistic lock, so that a
+concurrent change of the object causes a conflict and a retry, not an
+overwrite.
+
+The value of the annotation is `<namespace>/<secret>`. The controller accepts
+only `<namespace of the stack>/kubewarden-ca`, because its cache and its RBAC
+rules for secrets cover only the namespace of the stack. The webhook
+configurations of the policies do not have the annotation, because the Policy
+types reconciliation loops own them.
 
 ### Policy Server
 
@@ -269,12 +399,46 @@ Policy Server certificates.
 
 The reconciliation loops that handle the `ClusterAdmissionPolicy`,
 `AdmissionPolicy`, `ClusterAdmissionPolicyGroup` and `AdmissionPolicyGroup`
-should also use the root CA generated by the `kubewarden-controller` to configure
-the `clientConfig.caBundle` of the webhooks.
+use the CA bundle of `kubewarden-ca` to configure the `clientConfig.caBundle`
+of the webhooks.
+
+These loops watch the secret `kubewarden-ca`. When its CA bundle changes, they
+reconcile every policy.
+
+They write the full webhook configuration of a policy only when its Policy
+Server is uniquely reachable, that is, when all its Pods are ready and in the
+latest ReplicaSet. The `clientConfig.caBundle` does not wait for this
+condition. During a stalled rollout, the Pods that still serve load the
+certificates of a new CA. Thus the loops write the CA bundle into an existing
+webhook configuration before they check the reachability. They do not create a
+webhook configuration before this check.
 
 # Drawbacks
 
 [drawbacks]: #drawbacks
+
+- The chart still renders a random root CA without cluster access. The
+  controller repairs the webhook configurations, but the output of the chart
+  is not correct for a reader. GitOps tools must ignore `data` of the three
+  secrets of the Helm chart and `clientConfig.caBundle` of the webhook
+  configurations.
+- A GitOps tool that does not keep the live value, for example Argo CD
+  without `RespectIgnoreDifferences=true`, writes the random root CA on each
+  sync. The controller repairs it each time. Each sync causes a short
+  interruption of the webhooks of the `kubewarden-controller`.
+- The repair of the webhook configurations of the `kubewarden-controller` needs
+  the annotation of the Helm chart. The controller image and the Helm chart of
+  the same release must be used together.
+- A webhook configuration that sends requests to a Policy Server and that no
+  owner updates delays the renewal of the certificate of that Policy Server.
+  An example is a webhook configuration from an old release that the cleanup
+  did not remove yet. The current certificate stays valid while the previous
+  CA is in the CA bundle.
+- A Policy types reconciliation loop with a secret from a stale cache can write
+  the previous CA bundle for a few seconds after a correct publication. The
+  watch of the secret corrects it at the next reconcile. The certificates
+  reconciliation loop reads the published state, so it does not sign a
+  certificate in that time.
 
 # Alternatives
 
@@ -282,8 +446,43 @@ the `clientConfig.caBundle` of the webhooks.
 
 See this RFC file history. The initial version of the document has a different proposal.
 
+These alternatives were examined for the ownership of the CA bundles:
+
+- **Compare the CA bundle on each check of the certificates reconciliation
+  loop.** This is the smallest change. A wrong CA bundle stays for up to 12
+  hours, or until a restart of the controller. Rejected.
+- **The certificates reconciliation loop writes the CA bundle before it signs
+  the certificates**, next to the owners. This gives the order of the rotation
+  with a write. Rejected: each webhook configuration gets two writers, and a
+  successful write is not the published state, because another writer can
+  change the value after it.
+- **Select the webhook configurations of the `kubewarden-controller` by name,
+  or by the labels `app.kubernetes.io/part-of` and
+  `app.kubernetes.io/component`.** Rejected: a name is one more string to keep
+  in step with the chart, and `component: controller` is a general label that
+  a later change of the chart can remove. The annotation states the source of
+  the CA bundle on the object.
+- **Put the annotation on the webhook configurations of the policies too**,
+  and let the webhook CA bundle reconciliation loop write their CA bundle.
+  Rejected for now: a new object has no CA bundle until the first patch, and
+  the policy reconciliation loops replace the whole list of webhooks on each
+  reconcile.
+- **Prevent the random root CA with options of Argo CD**, for example
+  `Prune=false`. Rejected: it removes only one cause, and it is specific to
+  Argo CD.
+
 # Unresolved questions
 
 [unresolved]: #unresolved-questions
 
-None
+- **Remove `clientConfig.caBundle` from the Helm chart.** The annotation makes
+  this possible, because the controller fills the CA bundle of each annotated
+  webhook configuration. With server-side apply, the upgrade that removes the
+  field from the chart also removes it from the cluster, if Helm is its only
+  field manager. The webhooks of the `kubewarden-controller` then fail until
+  the controller repairs them. This occurs once. A release in which the
+  controller applies the field with its own field manager can prevent it.
+- **Trust `old-ca.crt` for client certificates under mTLS.** It closes the case
+  of an audit scan that runs during a rotation of the root CA. It does not
+  close the time before a Policy Server loads the new CA. The fix is a change
+  in the Policy Server.
