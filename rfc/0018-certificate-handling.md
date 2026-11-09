@@ -7,6 +7,13 @@
 | RFC PR       | [#24](https://github.com/kubewarden/rfc/pull/24) |
 | State        | **ACCEPTED**                                     |
 
+
+> [!NOTE]
+> This RFC doesn't reflect the state of the certificate handling anymore.
+>
+> For an up-to-date document, see
+> [docs/controller/certificate-management.md](https://github.com/kubewarden/adm-controller/blob/main/docs/controller/certificate-management.md)
+
 # Summary
 
 [summary]: #summary
